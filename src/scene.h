@@ -176,7 +176,7 @@ namespace scene {
 		}
 		// print out progress
 		while(done <= total) {
-			std::printf("Progress:%7.2f%%\r", 6, 100.0*done/total);
+			std::printf("Progress:%7.2f%%\r", 100.0*done/total);
 			std::fflush(stdout);
 			if(done == total)
 				break;
