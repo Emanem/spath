@@ -159,7 +159,7 @@ namespace geom {
 
 	const double PI = std::acos(-1.0);
 
-	vec3 rand_unit_vec(const vec3& in) {
+	inline vec3 rand_unit_vec(const vec3& in) {
 		//return in;
 
 		const real	rv_xz = 1.0*std::rand()/RAND_MAX*PI*2.0,
@@ -186,12 +186,12 @@ namespace geom {
 			n;
 	};
 
-	void flat_normal(triangle& inout) {
+	inline void flat_normal(triangle& inout) {
 		const auto	dir = (inout.v1 - inout.v0).cross(inout.v2 - inout.v0);
 		inout.n = dir.unit();
 	}
 
-	real ray_intersect(const ray& r, const triangle& t, vec3& point) {
+	inline real ray_intersect(const ray& r, const triangle& t, vec3& point) {
 		static const real	EPSILON = 0.00000000000001;
 
 		const vec3	edge1 = t.v1 - t.v0,
