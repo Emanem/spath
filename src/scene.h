@@ -20,9 +20,6 @@
 
 #include "geom.h"
 #include "view.h"
-#include <thread>
-#include <atomic>
-#include <cstdio>
 
 namespace scene {
 	struct RGBA {

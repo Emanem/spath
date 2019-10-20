@@ -159,11 +159,14 @@ namespace geom {
 
 	const double PI = std::acos(-1.0);
 
-	inline vec3 rand_unit_vec(const vec3& in) {
+	// This function needs a functor which generates
+	// a random number (uniform ideally)
+	template<typename Rf>
+	inline vec3 rand_unit_vec(const vec3& in, Rf& r) {
 		//return in;
 
-		const real	rv_xz = 1.0*std::rand()/RAND_MAX*PI*2.0,
-		      		rv_y = 1.0*std::rand()/RAND_MAX*PI*0.5,
+		const real	rv_xz = 1.0*r()*PI*2.0,
+		      		rv_y = 1.0*r()*PI*0.5,
 				f_x = std::cos(rv_y),
 				f_y = std::sin(rv_y);
 		// directions
