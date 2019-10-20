@@ -1,0 +1,2 @@
+# spath
+Simple path tracer
