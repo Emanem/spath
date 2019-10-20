@@ -20,6 +20,9 @@
 
 #include "geom.h"
 #include "view.h"
+#include <thread>
+#include <atomic>
+#include <cstdio>
 
 namespace scene {
 	struct RGBA {
@@ -105,6 +108,17 @@ namespace scene {
 		return mats[idx].emittance_color + (BRDF * rec_color * cos_theta * (1.0/p)); 
 	}
 
+	void render_core(const int idx, const view::viewport& vp, const geom::triangle* tris, const material* mats, const size_t n_tris, bitmap& out) {
+		out.values[idx] = RGBA{0, 0, 0, 0};
+		const static int	SAMPLES = 200;
+		geom::vec3		accum;
+		for(int j = 0; j < SAMPLES; ++j) {
+			accum += render_step(vp.rays[idx], tris, mats, n_tris);
+		}
+		accum *= (1.0/SAMPLES);
+		out.values[idx] = vec3_RGBA(accum.clamp());
+	}
+
 	void render_pt(const view::viewport& vp, const geom::triangle* tris, const material* mats, const size_t n_tris, bitmap& out) {
 		// first ensure that the bitmap is of correct size
 		out.res_x = vp.res_x;
@@ -113,15 +127,51 @@ namespace scene {
 		// now, for each viewport point, do compute if we get a triangle
 		// and if yes, write which one as a char
 		for(int i = 0; i < (int)vp.rays.size(); ++i) {
-			out.values[i] = RGBA{0, 0, 0, 0};
-			const static int	SAMPLES = 200;
-			geom::vec3		accum;
-			for(int j = 0; j < SAMPLES; ++j) {
-				accum += render_step(vp.rays[i], tris, mats, n_tris);
-			}
-			accum *= (1.0/SAMPLES);
-			out.values[i] = vec3_RGBA(accum.clamp());
+			render_core(i, vp, tris, mats, n_tris, out);
 		}
+	}
+
+	void render_pt_mt(const view::viewport& vp, const geom::triangle* tris, const material* mats, const size_t n_tris, bitmap& out) {
+		// first ensure that the bitmap is of correct size
+		out.res_x = vp.res_x;
+		out.res_y = vp.res_y;
+		out.values.resize(out.res_x*out.res_y);
+		// set the max number of threads
+		const int			max_th = std::thread::hardware_concurrency(),
+		      				th_sz = out.values.size() / max_th,
+						th_rem = out.values.size()%th_sz;
+		std::vector<std::thread>	th_vec;
+		int				total = out.values.size();
+		std::atomic<int>		done(0);
+		//
+		std::cout << "Set parallelism: " << max_th << std::endl;
+		// spawn a thread for each chunk
+		for(int i = 0; i < max_th; ++i) {
+			th_vec.push_back(
+				std::thread(
+					[&out, &vp, &tris, &mats, &n_tris, &done](const int s, const int e) -> void {
+						for(int r = s; r < e; ++r) {
+							render_core(r, vp, tris, mats, n_tris, out);
+							++done;
+						}
+					},
+					i*th_sz,
+					(i+1)*th_sz + ((i != max_th-1) ? 0 : th_rem) 
+				)
+			);
+		}
+		// print out progress
+		while(done <= total) {
+			std::printf("Progress:%7.2f%%\r", 6, 100.0*done/total);
+			std::fflush(stdout);
+			if(done == total)
+				break;
+			std::this_thread::sleep_for(std::chrono::milliseconds(250));
+		}
+		std::printf("\nDone\n");
+		// wait for all of those to end
+		for(auto& i : th_vec)
+			i.join();
 	}
 }
 

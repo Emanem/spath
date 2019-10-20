@@ -76,7 +76,7 @@ namespace gl {
 				glutPostRedisplay();
 				break;
 			case 'r':
-				if(r_func == scene::render_test) r_func = scene::render_pt;
+				if(r_func == scene::render_test) r_func = scene::render_pt_mt;
 				else r_func = scene::render_test;
 				glutPostRedisplay();
 			default:

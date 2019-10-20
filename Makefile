@@ -6,7 +6,7 @@ CPPC=g++
 LINK=g++
 SRCDIR=src
 OBJDIR=obj
-FLAGS=-g -Wall -std=c++11 
+FLAGS=-g -Wall -std=c++11 -pthread
 LIBS=-lglut -lGL 
 OBJS=$(OBJDIR)/main.o 
 EXEC=spath
