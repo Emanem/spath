@@ -138,8 +138,9 @@ namespace scene {
 		out.values.resize(out.res_x*out.res_y);
 		// set the max number of threads
 		const int			max_th = std::thread::hardware_concurrency(),
-		      				th_sz = out.values.size() / max_th,
-						th_rem = out.values.size()%th_sz;
+		      				chunk_sz = 16,
+						n_chunks = out.values.size() / chunk_sz,
+						chunks_per_th = n_chunks / max_th;
 		std::vector<std::thread>	th_vec;
 		int				total = out.values.size();
 		std::atomic<int>		done(0);
@@ -149,14 +150,27 @@ namespace scene {
 		for(int i = 0; i < max_th; ++i) {
 			th_vec.push_back(
 				std::thread(
-					[&out, &vp, &tris, &mats, &n_tris, &done](const int s, const int e) -> void {
-						for(int r = s; r < e; ++r) {
-							render_core(r, vp, tris, mats, n_tris, out);
-							++done;
+					[&](const int s) -> void {
+						for(int j = 0; j < chunks_per_th; ++j) {
+							const int	cur_chunk = j*max_th + s;
+							for(int r = cur_chunk*chunk_sz; r < (cur_chunk+1)*chunk_sz; ++r) {
+								render_core(r, vp, tris, mats, n_tris, out);
+								++done;
+							}
+						}
+						// if we're the last thread
+						// finish off the remainder
+						if(s == max_th-1) {
+							const int	chunk_r_beg = chunks_per_th*max_th*chunk_sz,
+									chunk_r_end = out.values.size();
+							for(int r = chunk_r_beg; r < chunk_r_end; ++r) {
+								render_core(r, vp, tris, mats, n_tris, out);
+								++done;
+							}
+	
 						}
 					},
-					i*th_sz,
-					(i+1)*th_sz + ((i != max_th-1) ? 0 : th_rem) 
+					i
 				)
 			);
 		}
