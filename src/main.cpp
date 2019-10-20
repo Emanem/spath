@@ -20,7 +20,6 @@
 #include "scene.h"
 #include <iostream>
 #include <GL/glut.h>
-#include <assert.h>
 
 namespace gl {
 	typedef void (*render_func)(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, scene::bitmap& out);
@@ -91,7 +90,7 @@ int main(int argc, char *argv[]) {
 		view::viewport	vp;
 		c.get_viewport(vp);
 
-		geom::triangle	t[5];
+		geom::triangle	t[7];
 		t[0].v0 = geom::vec3(0.0, 0.0, 1.0);
 		t[0].v1 = geom::vec3(0.5, -0.5, 0.0);
 		t[0].v2 = geom::vec3(-0.5, -0.5, 0.0);
@@ -111,11 +110,19 @@ int main(int argc, char *argv[]) {
 		t[4].v0 = geom::vec3(-al_size, 0.75, al_size);
 		t[4].v1 = geom::vec3(-al_size, 0.75, -al_size);
 		t[4].v2 = geom::vec3(al_size, 0.75, -al_size);
+		// back wall t[5] and t[6]
+		const float	wall_depth = 1.0;
+		t[5].v0 = geom::vec3(1.25, 0.5, wall_depth);
+		t[5].v1 = geom::vec3(1.25, -1.0, wall_depth);
+		t[5].v2 = geom::vec3(-1.25, -1.0, wall_depth);
+		t[6].v0 = geom::vec3(1.25, 0.5, wall_depth);
+		t[6].v1 = geom::vec3(-1.25, -1.0, wall_depth);
+		t[6].v2 = geom::vec3(-1.25, 0.5, wall_depth);
 		// setup flat normals
 		for(int i = 0; i < (int)(sizeof(t)/sizeof(geom::triangle)); ++i)
 			geom::flat_normal(t[i]);
 		// setup materials
-		scene::material	m[5];
+		scene::material	m[7];
 		m[0].reflectance_color = geom::vec3(1.0, 0.0, 0.0);
 		//
 		m[1].reflectance_color = geom::vec3(0.0, 1.0, 0.0);
@@ -127,7 +134,10 @@ int main(int argc, char *argv[]) {
 		m[3].emittance_color = geom::vec3(1.0, 1.0, 1.0);
 		m[4].reflectance_color = geom::vec3(1.0, 1.0, 1.0);
 		m[4].emittance_color = geom::vec3(1.0, 1.0, 1.0);
-		assert(sizeof(m)/sizeof(scene::material) == sizeof(t)/sizeof(geom::triangle));
+		//
+		m[5].reflectance_color = geom::vec3(1.0, 1.0, 1.0);
+		m[6].reflectance_color = geom::vec3(1.0, 1.0, 1.0);
+		static_assert(sizeof(m)/sizeof(scene::material) == sizeof(t)/sizeof(geom::triangle));
 
 		// set the global parameters
 		gl::vc = &c;
