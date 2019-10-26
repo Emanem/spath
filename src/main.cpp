@@ -62,7 +62,32 @@ namespace gl {
 
 	void keyboardFunc(unsigned char key, int x, int y) {
 		switch(key) {
+			// camera pos
+			case 'w':
+				vc->pos.z += 0.05;
+				glutPostRedisplay();
+				break;
+			case 's':
+				vc->pos.z -= 0.05;
+				glutPostRedisplay();
+				break;
+			case 'a':
+				vc->pos.x += 0.05;
+				glutPostRedisplay();
+				break;
+			case 'd':
+				vc->pos.x -= 0.05;
+				glutPostRedisplay();
+				break;
+			// camera angle
 			case 'q':
+				vc->angle.y += 2*geom::PI/128.0;
+				glutPostRedisplay();
+				break;
+			case 'e':
+				vc->angle.y -= 2*geom::PI/128.0;
+				glutPostRedisplay();
+				break;
 			case 27: //esc
 				std::exit(0);
 				break;

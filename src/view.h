@@ -46,12 +46,12 @@ namespace view {
 	// use a camera to create a viewport
 	struct camera {
 		geom::vec3	pos,
-				dir;
+				angle;
 		real		focal;
 		size_t		res_x,
 				res_y;
 
-		camera(const size_t x, const size_t y, const real f_ = 2.0) : pos(0.0, 0.0, -3.0), dir(1.0, 0.0, 0.0), focal(f_), res_x(x), res_y(y) {
+		camera(const size_t x, const size_t y, const real f_ = 2.0) : pos(0.0, 0.0, -3.0), angle(0.0, 0.0, 0.0), focal(f_), res_x(x), res_y(y) {
 		}
 
 		void get_viewport(viewport& out) {
@@ -72,7 +72,7 @@ namespace view {
 			for(int i = 0; i < (int)res_x; ++i) {
 				for(int j = 0; j < (int)res_y; ++j) {
 					const vec3	cur_pos(x_max - x_step*i - h_x_step, y_max - y_step*j - h_y_step, 0.0);
-					out.rays[i + j*res_x].pos = cur_pos + pos;
+					out.rays[i + j*res_x].pos = cur_pos;
 					// now add the focal vector for direction
 					out.rays[i + j*res_x].dir = (cur_pos + vec3(0.0, 0.0, focal)).unit();
 				}
@@ -80,6 +80,25 @@ namespace view {
 			// we should rotate at this stage... but hey...
 			// this may be useful https://math.stackexchange.com/questions/293116/rotating-one-3d-vector-to-another
 			// this also https://en.wikipedia.org/wiki/Rodrigues%27_rotation_formula#Matrix_notation
+			// could go with a vector and then use the previous methods
+			// instead let's go with classical 'angle' and the standard
+			// 3d rotations on each axis https://en.wikipedia.org/wiki/Rotation_matrix#Basic_rotations
+			// for now, support y
+			const real	cosY = std::cos(angle.y),
+					sinY = std::sin(angle.y);
+			auto fn_rY = [&](vec3& inout) -> void {
+				inout.x = inout.x*cosY + inout.z*sinY;
+				// inout.y = inout.y;
+				inout.z = inout.x*-sinY + inout.z*cosY;
+			};
+			// then apply rotations
+			for(auto& i : out.rays) {
+				fn_rY(i.pos);
+				fn_rY(i.dir);
+			}
+			// add position (at the end) to ensure we move
+			for(auto& r : out.rays)
+				r.pos += pos;
 		}
 	};
 }
