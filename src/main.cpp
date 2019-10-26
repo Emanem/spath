@@ -111,7 +111,7 @@ namespace gl {
 				break;
 			case '-':
 				samples /= 2;
-				samples = (samples < 1) ? samples = 1 : samples;
+				samples = (samples < 1) ? 1 : samples;
 				glutPostRedisplay();
 				break;
 			// quit

@@ -12,13 +12,20 @@ Once done, then just invoke `make` or `make release` and the executable should b
 
 ## How to use
 This doesn't do much, just displays the scene on a GL window.
-By default it executes flast shading (as a debug tool). Use following keys to control a bit:
+By default it executes flat shading (as a debug tool). Use following keys to control a bit:
 
 Key | Action
 ----|-------
+w   | Move forward
+s   | Move backward
+a   | Strafe left
+d   | Strafe right
+q   | Rotate left
+e   | Rotate right
 f   | Increase focal (i.e. zoom in)
 g   | Decrease focal (i.e. zoom out)
-Esc | Quits
-q   | Quits
 r   | Switches from _flat_ to _path tracing_
++   | Increases samples (twice)
+-   | Decreases samples (halves)
+Esc | Quits
 

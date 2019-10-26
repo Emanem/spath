@@ -68,7 +68,7 @@ namespace {
 	void render_core(const int idx, const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, Rf& rf, scene::bitmap& out) {
 		out.values[idx] = scene::RGBA{0, 0, 0, 0};
 		geom::vec3		accum;
-		for(int j = 0; j < n_samples; ++j) {
+		for(int j = 0; j < (int)n_samples; ++j) {
 			accum += render_step(vp.rays[idx], tris, mats, n_tris, rf);
 		}
 		accum *= (1.0/n_samples);
