@@ -65,19 +65,18 @@ namespace {
 	}
 
 	template<typename Rf>
-	void render_core(const int idx, const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, Rf& rf, scene::bitmap& out) {
+	void render_core(const int idx, const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, Rf& rf, scene::bitmap& out) {
 		out.values[idx] = scene::RGBA{0, 0, 0, 0};
-		const static int	SAMPLES = 100;
 		geom::vec3		accum;
-		for(int j = 0; j < SAMPLES; ++j) {
+		for(int j = 0; j < n_samples; ++j) {
 			accum += render_step(vp.rays[idx], tris, mats, n_tris, rf);
 		}
-		accum *= (1.0/SAMPLES);
+		accum *= (1.0/n_samples);
 		out.values[idx] = scene::vec3_RGBA(accum.clamp());
 	}
 }
 
-void scene::render_test(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, scene::bitmap& out) {
+void scene::render_test(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out) {
 	// first ensure that the bitmap is of correct size
 	out.res_x = vp.res_x;
 	out.res_y = vp.res_y;
@@ -99,7 +98,7 @@ void scene::render_test(const view::viewport& vp, const geom::triangle* tris, co
 	}
 }
 
-void scene::render_pt(const view::viewport& vp, const geom::triangle* tris, const material* mats, const size_t n_tris, bitmap& out) {
+void scene::render_pt(const view::viewport& vp, const geom::triangle* tris, const material* mats, const size_t n_tris, const size_t n_samples, bitmap& out) {
 	// first ensure that the bitmap is of correct size
 	out.res_x = vp.res_x;
 	out.res_y = vp.res_y;
@@ -108,11 +107,11 @@ void scene::render_pt(const view::viewport& vp, const geom::triangle* tris, cons
 	// and if yes, write which one as a char
 	frand::basic_dist	bd;
 	for(int i = 0; i < (int)vp.rays.size(); ++i) {
-		render_core(i, vp, tris, mats, n_tris, bd, out);
+		render_core(i, vp, tris, mats, n_tris, n_samples, bd, out);
 	}
 }
 
-void scene::render_pt_mt(const view::viewport& vp, const geom::triangle* tris, const material* mats, const size_t n_tris, bitmap& out) {
+void scene::render_pt_mt(const view::viewport& vp, const geom::triangle* tris, const material* mats, const size_t n_tris, const size_t n_samples, bitmap& out) {
 	// first ensure that the bitmap is of correct size
 	out.res_x = vp.res_x;
 	out.res_y = vp.res_y;
@@ -127,6 +126,7 @@ void scene::render_pt_mt(const view::viewport& vp, const geom::triangle* tris, c
 	std::atomic<int>		done(0);
 	//
 	std::cout << "Set parallelism: " << max_th << std::endl;
+	std::cout << "Samples: " << n_samples << std::endl;
 	const auto			s_time = std::chrono::high_resolution_clock::now();
 	// spawn a thread for each chunk
 	for(int i = 0; i < max_th; ++i) {
@@ -140,7 +140,7 @@ void scene::render_pt_mt(const view::viewport& vp, const geom::triangle* tris, c
 					for(int j = 0; j < chunks_per_th; ++j) {
 						const int	cur_chunk = j*max_th + s;
 						for(int r = cur_chunk*chunk_sz; r < (cur_chunk+1)*chunk_sz; ++r) {
-							render_core(r, vp, tris, mats, n_tris, d, out);
+							render_core(r, vp, tris, mats, n_tris, n_samples, d, out);
 							++done;
 						}
 					}
@@ -150,7 +150,7 @@ void scene::render_pt_mt(const view::viewport& vp, const geom::triangle* tris, c
 						const int	chunk_r_beg = chunks_per_th*max_th*chunk_sz,
 								chunk_r_end = out.values.size();
 						for(int r = chunk_r_beg; r < chunk_r_end; ++r) {
-							render_core(r, vp, tris, mats, n_tris, d, out);
+							render_core(r, vp, tris, mats, n_tris, n_samples, d, out);
 							++done;
 						}
 

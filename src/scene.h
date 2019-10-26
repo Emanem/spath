@@ -45,11 +45,11 @@ namespace scene {
 				emittance_color;
 	};
 
-	extern void render_test(const view::viewport& vp, const geom::triangle* tris, const material* mats, const size_t n_tris, bitmap& out);
+	extern void render_test(const view::viewport& vp, const geom::triangle* tris, const material* mats, const size_t n_tris, const size_t n_samples, bitmap& out);
 
-	extern void render_pt(const view::viewport& vp, const geom::triangle* tris, const material* mats, const size_t n_tris, bitmap& out);
+	extern void render_pt(const view::viewport& vp, const geom::triangle* tris, const material* mats, const size_t n_tris, const size_t n_samples, bitmap& out);
 
-	extern void render_pt_mt(const view::viewport& vp, const geom::triangle* tris, const material* mats, const size_t n_tris, bitmap& out);
+	extern void render_pt_mt(const view::viewport& vp, const geom::triangle* tris, const material* mats, const size_t n_tris, const size_t n_samples, bitmap& out);
 }
 
 #endif //_SCENE_H_

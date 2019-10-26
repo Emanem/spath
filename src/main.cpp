@@ -22,12 +22,13 @@
 #include <GL/glut.h>
 
 namespace gl {
-	typedef void (*render_func)(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, scene::bitmap& out);
+	typedef void (*render_func)(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out);
 	// maybe implement this: https://community.khronos.org/t/does-opengl-help-in-the-display-of-an-existing-image/69979
 	// or just use glDrawPixels
 	view::camera	*vc = 0;
 	geom::triangle	*tris = 0;
 	scene::material	*mats = 0;
+	size_t		samples = 128;
 	scene::bitmap	bmp;
 	render_func	r_func = scene::render_test;
 	int		n_tris = -1;
@@ -54,7 +55,7 @@ namespace gl {
 		view::viewport	vp;
 		vc->get_viewport(vp);
 
-		r_func(vp, tris, mats, n_tris, bmp);
+		r_func(vp, tris, mats, n_tris, samples, bmp);
 
 		glDrawPixels(win_w, win_h, GL_RGBA, GL_UNSIGNED_BYTE, &bmp.values[0]);
         	glutSwapBuffers();
@@ -88,9 +89,7 @@ namespace gl {
 				vc->angle.y -= 2*geom::PI/128.0;
 				glutPostRedisplay();
 				break;
-			case 27: //esc
-				std::exit(0);
-				break;
+			// focal
 			case 'f':
 				vc->focal += 0.1;
 				glutPostRedisplay();
@@ -99,10 +98,26 @@ namespace gl {
 				vc->focal -= 0.1;
 				glutPostRedisplay();
 				break;
+			// render type
 			case 'r':
 				if(r_func == scene::render_test) r_func = scene::render_pt_mt;
 				else r_func = scene::render_test;
 				glutPostRedisplay();
+				break;
+			// samples
+			case '+':
+				samples *= 2;
+				glutPostRedisplay();
+				break;
+			case '-':
+				samples /= 2;
+				samples = (samples < 1) ? samples = 1 : samples;
+				glutPostRedisplay();
+				break;
+			// quit
+			case 27: //esc
+				std::exit(0);
+				break;
 			default:
 				break;
 		}
