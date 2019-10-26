@@ -45,6 +45,18 @@ namespace view {
 
 	// use a camera to create a viewport
 	struct camera {
+	private:
+		real	cosY,
+			sinY;
+
+		geom::vec3 rY(const geom::vec3& in) {
+			geom::vec3	r;
+			r.x = in.x*cosY + in.z*sinY;
+			r.y = in.y;
+			r.z = in.x*-sinY + in.z*cosY;
+			return r;
+		};
+	public:
 		geom::vec3	pos,
 				angle;
 		real		focal;
@@ -52,7 +64,13 @@ namespace view {
 				res_y;
 
 		camera(const size_t x, const size_t y, const real f_ = 2.0) : pos(0.0, 0.0, -3.0), angle(0.0, 0.0, 0.0), focal(f_), res_x(x), res_y(y) {
+			cosY = std::cos(angle.y);
+			sinY = std::sin(angle.y);
 		}
+
+		geom::vec3 rel_move(const geom::vec3& in) {
+			return rY(in);
+		};
 
 		void get_viewport(viewport& out) {
 			using namespace geom;
@@ -84,17 +102,12 @@ namespace view {
 			// instead let's go with classical 'angle' and the standard
 			// 3d rotations on each axis https://en.wikipedia.org/wiki/Rotation_matrix#Basic_rotations
 			// for now, support y
-			const real	cosY = std::cos(angle.y),
-					sinY = std::sin(angle.y);
-			auto fn_rY = [&](vec3& inout) -> void {
-				inout.x = inout.x*cosY + inout.z*sinY;
-				// inout.y = inout.y;
-				inout.z = inout.x*-sinY + inout.z*cosY;
-			};
+			cosY = std::cos(angle.y),
+			sinY = std::sin(angle.y);
 			// then apply rotations
 			for(auto& i : out.rays) {
-				fn_rY(i.pos);
-				fn_rY(i.dir);
+				i.pos = rY(i.pos);
+				i.dir = rY(i.dir);
 			}
 			// add position (at the end) to ensure we move
 			for(auto& r : out.rays)

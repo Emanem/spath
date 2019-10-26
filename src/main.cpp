@@ -64,19 +64,19 @@ namespace gl {
 		switch(key) {
 			// camera pos
 			case 'w':
-				vc->pos.z += 0.05;
+				vc->pos += vc->rel_move(geom::vec3(0.0, 0.0, 0.05));
 				glutPostRedisplay();
 				break;
 			case 's':
-				vc->pos.z -= 0.05;
+				vc->pos += vc->rel_move(geom::vec3(0.0, 0.0, -0.05));
 				glutPostRedisplay();
 				break;
 			case 'a':
-				vc->pos.x += 0.05;
+				vc->pos += vc->rel_move(geom::vec3(0.05, 0.0, 0.0));
 				glutPostRedisplay();
 				break;
 			case 'd':
-				vc->pos.x -= 0.05;
+				vc->pos += vc->rel_move(geom::vec3(-0.05, 0.0, 0.0));
 				glutPostRedisplay();
 				break;
 			// camera angle
