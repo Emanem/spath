@@ -25,7 +25,7 @@ e   | Rotate right
 f   | Increase focal (i.e. zoom in)
 g   | Decrease focal (i.e. zoom out)
 r   | Switches from _flat_ to _path tracing_
-+   | Increases samples (twice)
--   | Decreases samples (halves)
+\+   | Increases samples (twice)
+\-   | Decreases samples (halves)
 Esc | Quits
 
