@@ -195,6 +195,7 @@ namespace {
 		}
 
 		virtual void render(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out) {
+			render_core("render", vp, tris, mats, n_tris, n_samples, out);
 		}
 
 	};
