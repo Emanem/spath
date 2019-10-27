@@ -181,20 +181,6 @@ namespace {
 			i.join();
 	}
 
-	struct flat_r : public basic_renderer {
-		flat_r(const int x, const int y) : basic_renderer(x, y) {
-		}
-
-		virtual const char* get_description(void) const {
-			return "CPU - Flat";
-		}
-
-		virtual void render(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out) {
-			render_test(vp, tris, mats, n_tris, n_samples, out);
-		}
-
-	};
-
 	struct pt_r : public basic_renderer {
 		pt_r(const int x, const int y) : basic_renderer(x, y) {
 		}
@@ -202,6 +188,11 @@ namespace {
 		virtual const char* get_description(void) const {
 			return "CPU - Path Tracing";
 		}
+
+		virtual void render_flat(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out) {
+			render_test(vp, tris, mats, n_tris, n_samples, out);
+		}
+
 		virtual void render(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out) {
 			render_pt_mt(vp, tris, mats, n_tris, n_samples, out);
 		}
@@ -210,11 +201,7 @@ namespace {
 }
 
 namespace cpu_renderer {
-	scene::renderer* get_flat(const int w, const int h) {
-		return new flat_r(w, h);
-	}
-
-	scene::renderer* get_pt(const int w, const int h) {
+	scene::renderer* get(const int w, const int h) {
 		return new pt_r(w, h);
 	}
 }

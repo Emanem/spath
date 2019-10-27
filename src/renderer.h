@@ -29,6 +29,7 @@ namespace scene {
 		virtual void set_delta_rot(const geom::vec3& r) = 0;
 		virtual void set_delta_focal(const real f) = 0;
 		virtual void get_viewport(view::viewport& vp) = 0;
+		virtual void render_flat(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out) = 0;
 		virtual void render(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out) = 0;
 		// inline declaration
 		virtual ~renderer() {}

@@ -150,7 +150,7 @@ namespace {
 			return desc.c_str();
 		}
 
-		virtual void render(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out) {
+		virtual void render_core(const std::string& k_fn, const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out) {
 			// first ensure that the bitmap is of correct size
 			out.res_x = vp.res_x;
 			out.res_y = vp.res_y;
@@ -167,7 +167,7 @@ namespace {
 			cl::Buffer	out_buf(cl_ctx, (CL_MEM_HOST_READ_ONLY|CL_MEM_WRITE_ONLY), sizeof(cl_data::RGBA)*out.values.size());
 			// run the kernel
 			const auto	s_time = std::chrono::high_resolution_clock::now();
-			cl::Kernel	k_render_flat(cl_prog, "render_flat");
+			cl::Kernel	k_render_flat(cl_prog, k_fn.c_str());
 			k_render_flat.setArg(0, vp_buf);
 			k_render_flat.setArg(1, tris_buf);
 			k_render_flat.setArg(2, mats_buf);
@@ -188,6 +188,13 @@ namespace {
 				out.values[i].b = outbuf[i].b;
 				out.values[i].a = outbuf[i].a;
 			}
+		}
+
+		virtual void render_flat(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out) {
+			render_core("render_flat", vp, tris, mats, n_tris, n_samples, out);
+		}
+
+		virtual void render(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out) {
 		}
 
 	};

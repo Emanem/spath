@@ -21,8 +21,7 @@
 #include "renderer.h"
 
 namespace cpu_renderer {
-	extern scene::renderer* get_flat(const int w, const int h);
-	extern scene::renderer* get_pt(const int w, const int h);
+	extern scene::renderer* get(const int w, const int h);
 }
 
 #endif //_CPU_RENDERER_H_

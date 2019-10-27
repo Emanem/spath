@@ -24,7 +24,8 @@ a   | Strafe left
 d   | Strafe right
 f   | Increase focal (i.e. zoom in)
 g   | Decrease focal (i.e. zoom out)
-r   | Switches from _flat_ to _path tracing_
+r   | Switches renderer (_CPU_ to _OpenCL_)
+p   | Switches tracing (_flat_ to _path tracing_)
 \+   | Increases samples (twice)
 \-   | Decreases samples (halves)
 q   | Quits

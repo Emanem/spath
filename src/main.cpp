@@ -44,7 +44,8 @@ namespace gl {
 			win_h = -1,
 			mouse_x = -1,
 			mouse_y = -1;
-	bool		mouse_lb_pressed = false;
+	bool		mouse_lb_pressed = false,
+			path_tracing = false;
 
 	void reshapeFunc(int w, int h) {
 		win_w = w;
@@ -66,7 +67,11 @@ namespace gl {
 
 		view::viewport	vp;
 		all_renderers[cur_renderer]->get_viewport(vp);
-		all_renderers[cur_renderer]->render(vp, tris, mats, n_tris, samples, bmp);
+		if(path_tracing) {
+			all_renderers[cur_renderer]->render(vp, tris, mats, n_tris, samples, bmp);
+		} else {
+			all_renderers[cur_renderer]->render_flat(vp, tris, mats, n_tris, samples, bmp);
+		}
 
 		glDrawPixels(win_w, win_h, GL_RGBA, GL_UNSIGNED_BYTE, &bmp.values[0]);
         	glutSwapBuffers();
@@ -120,6 +125,11 @@ namespace gl {
 			case '-':
 				samples /= 2;
 				samples = (samples < 1) ? 1 : samples;
+				glutPostRedisplay();
+				break;
+			// path tracing enabler
+			case 'p':
+				path_tracing = !path_tracing;
 				glutPostRedisplay();
 				break;
 			// quit
@@ -222,11 +232,9 @@ int main(int argc, char *argv[]) {
 		gl::win_h = 480;
 
 		// set the renderers
-		std::unique_ptr<scene::renderer>	flat_r(cpu_renderer::get_flat(gl::win_w, gl::win_h)),
-							pt_r(cpu_renderer::get_pt(gl::win_w, gl::win_h)),
+		std::unique_ptr<scene::renderer>	pt_r(cpu_renderer::get(gl::win_w, gl::win_h)),
 							cl_r(cl_renderer::get(gl::win_w, gl::win_h));
 		// add to the vector
-		all_renderers.push_back(&(*flat_r));
 		all_renderers.push_back(&(*pt_r));
 		all_renderers.push_back(&(*cl_r));
 		// print description
