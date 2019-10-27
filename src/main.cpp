@@ -34,7 +34,10 @@ namespace gl {
 	int		n_tris = -1;
 
 	int		win_w = -1,
-			win_h = -1;
+			win_h = -1,
+			mouse_x = -1,
+			mouse_y = -1;
+	bool		mouse_lb_pressed = false;
 
 	void reshapeFunc(int w, int h) {
 		win_w = w;
@@ -80,15 +83,6 @@ namespace gl {
 				vc->pos += vc->rel_move(geom::vec3(-0.05, 0.0, 0.0));
 				glutPostRedisplay();
 				break;
-			// camera angle
-			case 'q':
-				vc->angle.y += 2*geom::PI/128.0;
-				glutPostRedisplay();
-				break;
-			case 'e':
-				vc->angle.y -= 2*geom::PI/128.0;
-				glutPostRedisplay();
-				break;
 			// focal
 			case 'f':
 				vc->focal += 0.1;
@@ -115,11 +109,39 @@ namespace gl {
 				glutPostRedisplay();
 				break;
 			// quit
+			case 'q':
 			case 27: //esc
 				std::exit(0);
 				break;
 			default:
 				break;
+		}
+	}
+
+	void mouseFunc(int btn, int s, int x, int y) {
+		// update old coordinates
+		mouse_x = x;
+		mouse_y = y;
+		// manage the button press
+		switch(btn) {
+			case GLUT_LEFT_BUTTON:
+				mouse_lb_pressed = (s == GLUT_DOWN);
+				break;
+			default:
+				break;
+		}
+	}
+
+	void motionFunc(int x, int y) {
+		// update the view only if the LB is pressed
+		if(mouse_lb_pressed) {
+			const real	delta_angle_y = -1.0*(x - mouse_x)*(2*geom::PI)*0.001;
+			vc->angle.y += delta_angle_y;
+			// update old coordinates
+			mouse_x = x;
+			mouse_y = y;
+			// redisplay
+			glutPostRedisplay();
 		}
 	}
 }
@@ -195,6 +217,8 @@ int main(int argc, char *argv[]) {
 		glutDisplayFunc(gl::displayFunc);
 		glutReshapeFunc(gl::reshapeFunc);
 		glutKeyboardUpFunc(gl::keyboardFunc);
+		glutMouseFunc(gl::mouseFunc);
+		glutMotionFunc(gl::motionFunc);
 		glutMainLoop();
 	} catch(const std::exception& e) {
 		std::cerr << "Exception: " << e.what() << std::endl;

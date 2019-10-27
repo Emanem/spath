@@ -20,12 +20,12 @@ w   | Move forward
 s   | Move backward
 a   | Strafe left
 d   | Strafe right
-q   | Rotate left
-e   | Rotate right
 f   | Increase focal (i.e. zoom in)
 g   | Decrease focal (i.e. zoom out)
 r   | Switches from _flat_ to _path tracing_
 \+   | Increases samples (twice)
 \-   | Decreases samples (halves)
+q   | Quits
 Esc | Quits
+MLB | Rotate horizontally when dragging the mouse
 
