@@ -23,6 +23,8 @@
 #include <chrono>
 
 namespace cl_data {
+	// change this from cl_float --> cl_double
+	// if you want to enable double precision
 	typedef cl_float cl_real;
 
 	struct vec3 {

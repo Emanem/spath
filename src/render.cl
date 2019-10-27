@@ -1,5 +1,10 @@
 /* declare types */
 
+// enable this and define below cl_real
+// as double if you want to use double
+// precision
+//#pragma OPENCL EXTENSION cl_khr_fp64 : enable
+
 typedef float cl_real;
 
 typedef struct vec3_ {
@@ -170,6 +175,9 @@ vec3 render_step(const ray* r, global triangle* tris, global material* mats, con
 	rv.y = 0.0;
 	rv.z = 0.0;
 	// just max 5 bounces for now...
+	// in case we want to use double precision
+	// the following code only works with
+	// max 3 bounces...
 	if(depth >= 5)
 		return rv;
 	// try to hit something
