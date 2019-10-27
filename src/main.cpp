@@ -135,8 +135,10 @@ namespace gl {
 	void motionFunc(int x, int y) {
 		// update the view only if the LB is pressed
 		if(mouse_lb_pressed) {
-			const real	delta_angle_y = -1.0*(x - mouse_x)*(2*geom::PI)*0.001;
+			const real	delta_angle_y = -1.0*(x - mouse_x)*(2.0*geom::PI)*0.0005,
+					delta_angle_x = 1.0*(y - mouse_y)*(2.0*geom::PI)*0.0005;
 			vc->angle.y += delta_angle_y;
+			vc->angle.x += delta_angle_x;
 			// update old coordinates
 			mouse_x = x;
 			mouse_y = y;

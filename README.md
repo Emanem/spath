@@ -27,5 +27,5 @@ r   | Switches from _flat_ to _path tracing_
 \-   | Decreases samples (halves)
 q   | Quits
 Esc | Quits
-MLB | Rotate horizontally when dragging the mouse
+MLB | Rotate horizontally/vertically when dragging the mouse
 

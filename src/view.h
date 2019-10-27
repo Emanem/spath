@@ -47,15 +47,25 @@ namespace view {
 	struct camera {
 	private:
 		real	cosY,
-			sinY;
+			sinY,
+			cosX,
+			sinX;
 
-		geom::vec3 rY(const geom::vec3& in) {
+		inline geom::vec3 rY(const geom::vec3& in) {
 			geom::vec3	r;
 			r.x = in.x*cosY + in.z*sinY;
 			r.y = in.y;
 			r.z = in.x*-sinY + in.z*cosY;
 			return r;
 		};
+
+		inline geom::vec3 rX(const geom::vec3& in) {
+			geom::vec3	r;
+			r.x = in.x;
+			r.y = in.y*cosX + in.z*-sinX;
+			r.z = in.y*sinX + in.z*cosX;
+			return r;
+		}
 	public:
 		geom::vec3	pos,
 				angle;
@@ -68,8 +78,8 @@ namespace view {
 			sinY = std::sin(angle.y);
 		}
 
-		geom::vec3 rel_move(const geom::vec3& in) {
-			return rY(in);
+		inline geom::vec3 rel_move(const geom::vec3& in) {
+			return rY(rX(in));
 		};
 
 		void get_viewport(viewport& out) {
@@ -104,10 +114,12 @@ namespace view {
 			// for now, support y
 			cosY = std::cos(angle.y),
 			sinY = std::sin(angle.y);
+			cosX = std::cos(angle.x);
+			sinX = std::sin(angle.x);
 			// then apply rotations
 			for(auto& i : out.rays) {
-				i.pos = rY(i.pos);
-				i.dir = rY(i.dir);
+				i.pos = rel_move(i.pos);
+				i.dir = rel_move(i.dir);
 			}
 			// add position (at the end) to ensure we move
 			for(auto& r : out.rays)
