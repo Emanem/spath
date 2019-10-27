@@ -76,11 +76,20 @@ namespace view {
 		camera(const size_t x, const size_t y, const real f_ = 2.0) : pos(0.0, 0.0, -3.0), angle(0.0, 0.0, 0.0), focal(f_), res_x(x), res_y(y) {
 			cosY = std::cos(angle.y);
 			sinY = std::sin(angle.y);
+			cosX = std::cos(angle.x);
+			sinX = std::sin(angle.x);
 		}
 
 		inline geom::vec3 rel_move(const geom::vec3& in) {
 			return rY(rX(in));
 		};
+
+		inline void update_angles_trig_values(void) {
+			cosY = std::cos(angle.y),
+			sinY = std::sin(angle.y);
+			cosX = std::cos(angle.x);
+			sinX = std::sin(angle.x);
+		}
 
 		void get_viewport(viewport& out) {
 			using namespace geom;
@@ -112,11 +121,7 @@ namespace view {
 			// instead let's go with classical 'angle' and the standard
 			// 3d rotations on each axis https://en.wikipedia.org/wiki/Rotation_matrix#Basic_rotations
 			// for now, support y
-			cosY = std::cos(angle.y),
-			sinY = std::sin(angle.y);
-			cosX = std::cos(angle.x);
-			sinX = std::sin(angle.x);
-			// then apply rotations
+			// apply rotations
 			for(auto& i : out.rays) {
 				i.pos = rel_move(i.pos);
 				i.dir = rel_move(i.dir);

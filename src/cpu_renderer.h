@@ -15,36 +15,15 @@
     along with spath.  If not, see <https://www.gnu.org/licenses/>.
  * */
 
-#ifndef _SCENE_H_
-#define _SCENE_H_
+#ifndef _CPU_RENDERER_H_
+#define _CPU_RENDERER_H_
 
-#include "geom.h"
-#include "view.h"
+#include "renderer.h"
 
-namespace scene {
-	struct RGBA {
-		uint8_t	r,
-			g,
-			b,
-			a;
-	};
-
-	inline RGBA vec3_RGBA(const geom::vec3& in) {
-		const geom::vec3	c_v = in.clamp();
-		return RGBA { c_v.x*255, c_v.y*255, c_v.z*255, 0};
-	}
-
-	struct bitmap {
-		size_t			res_x,
-					res_y;
-		std::vector<RGBA>	values;
-	};
-
-	struct material {
-		geom::vec3	reflectance_color,
-				emittance_color;
-	};
+namespace cpu_renderer {
+	extern scene::renderer* get_flat(const int w, const int h);
+	extern scene::renderer* get_pt(const int w, const int h);
 }
 
-#endif //_SCENE_H_
+#endif //_CPU_RENDERER_H_
 

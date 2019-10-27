@@ -15,22 +15,28 @@
     along with spath.  If not, see <https://www.gnu.org/licenses/>.
  * */
 
-#include "geom.h"
-#include "view.h"
-#include "scene.h"
+#include "cpu_renderer.h"
 #include <iostream>
 #include <GL/glut.h>
+#include <memory>
+
+namespace {
+	// keep a vector of renderers
+	std::vector<scene::renderer*>	all_renderers;
+	int				cur_renderer = 0;
+
+	void print_r_desc(void) {
+		std::cout << "Current renderer: " << all_renderers[cur_renderer]->get_description() << std::endl;
+	}
+}
 
 namespace gl {
-	typedef void (*render_func)(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out);
 	// maybe implement this: https://community.khronos.org/t/does-opengl-help-in-the-display-of-an-existing-image/69979
 	// or just use glDrawPixels
-	view::camera	*vc = 0;
 	geom::triangle	*tris = 0;
 	scene::material	*mats = 0;
 	size_t		samples = 128;
 	scene::bitmap	bmp;
-	render_func	r_func = scene::render_test;
 	int		n_tris = -1;
 
 	int		win_w = -1,
@@ -42,8 +48,10 @@ namespace gl {
 	void reshapeFunc(int w, int h) {
 		win_w = w;
 		win_h = h;
-		vc->res_x = win_w;
-		vc->res_y = win_h;
+		// update all renderers
+		for(auto& i : all_renderers)
+			i->set_viewport_size(w, h);
+		// gl setup
 		glViewport (0, 0, (GLsizei) w, (GLsizei) h);
 		// these 2 lines are to flip the image...
 		glRasterPos2f(-1.0, 1.0);
@@ -56,9 +64,8 @@ namespace gl {
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		view::viewport	vp;
-		vc->get_viewport(vp);
-
-		r_func(vp, tris, mats, n_tris, samples, bmp);
+		all_renderers[cur_renderer]->get_viewport(vp);
+		all_renderers[cur_renderer]->render(vp, tris, mats, n_tris, samples, bmp);
 
 		glDrawPixels(win_w, win_h, GL_RGBA, GL_UNSIGNED_BYTE, &bmp.values[0]);
         	glutSwapBuffers();
@@ -68,34 +75,40 @@ namespace gl {
 		switch(key) {
 			// camera pos
 			case 'w':
-				vc->pos += vc->rel_move(geom::vec3(0.0, 0.0, 0.05));
+				for(auto& i : all_renderers)
+					i->set_delta_mov(geom::vec3(0.0, 0.0, 0.05));
 				glutPostRedisplay();
 				break;
 			case 's':
-				vc->pos += vc->rel_move(geom::vec3(0.0, 0.0, -0.05));
+				for(auto& i : all_renderers)
+					i->set_delta_mov(geom::vec3(0.0, 0.0, -0.05));
 				glutPostRedisplay();
 				break;
 			case 'a':
-				vc->pos += vc->rel_move(geom::vec3(0.05, 0.0, 0.0));
+				for(auto& i : all_renderers)
+					i->set_delta_mov(geom::vec3(0.05, 0.0, 0.0));
 				glutPostRedisplay();
 				break;
 			case 'd':
-				vc->pos += vc->rel_move(geom::vec3(-0.05, 0.0, 0.0));
+				for(auto& i : all_renderers)
+					i->set_delta_mov(geom::vec3(-0.05, 0.0, 0.0));
 				glutPostRedisplay();
 				break;
 			// focal
 			case 'f':
-				vc->focal += 0.1;
+				for(auto& i : all_renderers)
+					i->set_delta_focal(0.1);
 				glutPostRedisplay();
 				break;
 			case 'g':
-				vc->focal -= 0.1;
+				for(auto& i : all_renderers)
+					i->set_delta_focal(-0.1);
 				glutPostRedisplay();
 				break;
 			// render type
 			case 'r':
-				if(r_func == scene::render_test) r_func = scene::render_pt_mt;
-				else r_func = scene::render_test;
+				cur_renderer = (cur_renderer + 1) % all_renderers.size();
+				print_r_desc();
 				glutPostRedisplay();
 				break;
 			// samples
@@ -137,8 +150,9 @@ namespace gl {
 		if(mouse_lb_pressed) {
 			const real	delta_angle_y = -1.0*(x - mouse_x)*(2.0*geom::PI)*0.0005,
 					delta_angle_x = 1.0*(y - mouse_y)*(2.0*geom::PI)*0.0005;
-			vc->angle.y += delta_angle_y;
-			vc->angle.x += delta_angle_x;
+			// set all renderers
+			for(auto& i : all_renderers)
+				i->set_delta_rot(geom::vec3(delta_angle_x, delta_angle_y, 0.0));
 			// update old coordinates
 			mouse_x = x;
 			mouse_y = y;
@@ -150,10 +164,6 @@ namespace gl {
 
 int main(int argc, char *argv[]) {
 	try {
-		view::camera	c(640, 480);
-		view::viewport	vp;
-		c.get_viewport(vp);
-
 		geom::triangle	t[7];
 		t[0].v0 = geom::vec3(0.0, 0.0, 1.0);
 		t[0].v1 = geom::vec3(0.5, -0.5, 0.0);
@@ -204,12 +214,20 @@ int main(int argc, char *argv[]) {
 		static_assert(sizeof(m)/sizeof(scene::material) == sizeof(t)/sizeof(geom::triangle));
 
 		// set the global parameters
-		gl::vc = &c;
 		gl::tris = t;
 		gl::mats = m;
 		gl::n_tris = sizeof(t)/sizeof(geom::triangle);
 		gl::win_w = 640;
 		gl::win_h = 480;
+
+		// set the renderers
+		std::unique_ptr<scene::renderer>	flat_r(cpu_renderer::get_flat(gl::win_w, gl::win_h));
+		std::unique_ptr<scene::renderer>	pt_r(cpu_renderer::get_pt(gl::win_w, gl::win_h));
+		// add to the vector
+		all_renderers.push_back(&(*flat_r));
+		all_renderers.push_back(&(*pt_r));
+		// print description
+		print_r_desc();
 
 		glutInit(&argc, argv);
 		glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE | GLUT_RGBA);

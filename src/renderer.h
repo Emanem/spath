@@ -15,36 +15,25 @@
     along with spath.  If not, see <https://www.gnu.org/licenses/>.
  * */
 
-#ifndef _SCENE_H_
-#define _SCENE_H_
+#ifndef _RENDERER_H_
+#define _RENDERER_H_
 
-#include "geom.h"
-#include "view.h"
+#include "scene.h"
 
 namespace scene {
-	struct RGBA {
-		uint8_t	r,
-			g,
-			b,
-			a;
-	};
-
-	inline RGBA vec3_RGBA(const geom::vec3& in) {
-		const geom::vec3	c_v = in.clamp();
-		return RGBA { c_v.x*255, c_v.y*255, c_v.z*255, 0};
-	}
-
-	struct bitmap {
-		size_t			res_x,
-					res_y;
-		std::vector<RGBA>	values;
-	};
-
-	struct material {
-		geom::vec3	reflectance_color,
-				emittance_color;
+	class renderer {
+	public:
+		virtual const char* get_description(void) const = 0;
+		virtual void set_viewport_size(const int w, const int h) = 0;
+		virtual void set_delta_mov(const geom::vec3& m) = 0;
+		virtual void set_delta_rot(const geom::vec3& r) = 0;
+		virtual void set_delta_focal(const real f) = 0;
+		virtual void get_viewport(view::viewport& vp) = 0;
+		virtual void render(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out) = 0;
+		// inline declaration
+		virtual ~renderer() {}
 	};
 }
 
-#endif //_SCENE_H_
+#endif //_RENDERER_H_
 
