@@ -6,8 +6,10 @@ Very simple program to execute basic (Lambertian) _path tracing_ on triangles.
 I've developed this just to play a bit, this is indeed experimental.
 
 ## How to build
-You will need _freeglut_ installed to compile:
-```sudo apt install freeglut3-dev```
+You will need _freeglut_ and _OpenCL_ installed to compile:
+```sudo apt install freeglut3-dev opencl-headers opencl-clhpp-headers```.
+On Nvidia, one also has to create a _symlink_ to the _OpenCL.so_ library (not done by the installation of dev packages by default); in order
+to achieve this, let's add the following symlink ```sudo ln -s /usr/lib/x86_64-linux-gnu/libOpenCL.so.1 /usr/lib/libOpenCL.so```. 
 Once done, then just invoke `make` or `make release` and the executable should be compiled.
 
 ## How to use
