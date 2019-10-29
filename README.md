@@ -1,6 +1,8 @@
 # spath
 Simple path tracer
 
+![spath in action](https://raw.githubusercontent.com/Emanem/spath/master/imgs/spath.png)
+
 ## Summary
 Very simple program to execute basic (Lambertian) _path tracing_ on triangles.
 I've developed this just to play a bit, this is indeed experimental.
