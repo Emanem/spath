@@ -169,7 +169,7 @@ vec3 rand_unit_vec(const vec3* in, uint* rand_seed) {
 }
 
 
-vec3 render_step(const ray* r, global triangle* tris, global material* mats, const size_t n_tris, uint* rand_seed, const int depth) {
+vec3 render_step(const ray* r, global triangle* tris, global material* mats, const size_t n_tris, uint* rand_seed, const int idx_source, const int depth) {
 	vec3	rv;
 	rv.x = 0.0;
 	rv.y = 0.0;
@@ -185,6 +185,8 @@ vec3 render_step(const ray* r, global triangle* tris, global material* mats, con
 	ray	next_r;
 	int	idx = -1;
 	for(int i = 0; i < n_tris; ++i) {
+		if(i == idx_source)
+			continue;
 		vec3		unused;
 		triangle	cur_tri = tris[i];
 		const cl_real	cur_d = ray_intersect(r, &cur_tri, &unused);
@@ -211,7 +213,7 @@ vec3 render_step(const ray* r, global triangle* tris, global material* mats, con
 	const vec3	ref_color = mats[idx].reflectance_color;
 	const vec3	BRDF = v_mult(&ref_color, (1.0/PI));
 	// recursive step
-	const vec3	rec_color = render_step(&next_r, tris, mats, n_tris, rand_seed, depth+1);
+	const vec3	rec_color = render_step(&next_r, tris, mats, n_tris, rand_seed, idx, depth+1);
 	// temporary variables steps
 	const vec3	b_in = v_multv(&BRDF, &rec_color);
 	const vec3	pt_comp = v_mult(&b_in, cos_theta * (1.0/p));
@@ -234,7 +236,7 @@ void kernel render(global ray* rays, global triangle* tris, global material* mat
 	accum.y = 0.0;
 	accum.z = 0.0;
 	for(int i =0; i < n_samples; ++i) {
-		vec3	tmp = render_step(&r, tris, mats, n_tris, &seed, 0);
+		vec3	tmp = render_step(&r, tris, mats, n_tris, &seed, -1, 0);
 		accum = v_add(&accum, &tmp);
 	}
 	// take averages

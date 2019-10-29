@@ -27,7 +27,7 @@ namespace {
 	const static real	MAX_VALUE_DIST = 1000000000000.0;
 
 	template<typename Rf>
-	geom::vec3 render_step(const geom::ray& r, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, Rf& rf, const int depth = 0) {
+	geom::vec3 render_step(const geom::ray& r, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, Rf& rf, const int idx_source, const int depth = 0) {
 		using namespace geom;
 		// just max 5 bounces for now...
 		if(depth >= 5)
@@ -37,6 +37,8 @@ namespace {
 		ray	next_r;
 		int	idx = -1;
 		for(int i = 0; i < (int)n_tris; ++i) {
+			if(idx_source == i)
+				continue;
 			geom::vec3	t_pos;
 			const real	cur_d = geom::ray_intersect(r, tris[i], t_pos);
 			if(cur_d > 0.0 && (cur_d < d)) {
@@ -60,7 +62,7 @@ namespace {
 		const real	cos_theta = next_r.dir.dot(adj_n);
 		const vec3	BRDF = mats[idx].reflectance_color * (1.0/PI);
 		// recursive step
-		const vec3	rec_color = render_step(next_r, tris, mats, n_tris, rf, depth+1);
+		const vec3	rec_color = render_step(next_r, tris, mats, n_tris, rf, idx, depth+1);
 		
 		return mats[idx].emittance_color + (BRDF * rec_color * cos_theta * (1.0/p)); 
 	}
@@ -70,7 +72,7 @@ namespace {
 		out.values[idx] = scene::RGBA{0, 0, 0, 0};
 		geom::vec3		accum;
 		for(int j = 0; j < (int)n_samples; ++j) {
-			accum += render_step(vp.rays[idx], tris, mats, n_tris, rf);
+			accum += render_step(vp.rays[idx], tris, mats, n_tris, rf, -1);
 		}
 		accum *= (1.0/n_samples);
 		out.values[idx] = scene::vec3_RGBA(accum.clamp());

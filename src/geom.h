@@ -21,7 +21,7 @@
 #include <cmath>
 #include <cstdlib>
 
-typedef double	real;
+typedef float	real;
 
 namespace geom {
 	struct vec3 {
