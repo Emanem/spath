@@ -29,6 +29,10 @@ namespace {
 	void print_r_desc(void) {
 		std::cout << "Current renderer: " << all_renderers[cur_renderer]->get_description() << std::endl;
 	}
+
+	void print_s_desc(const size_t s) {
+		std::cout << "Sample per pixel (PT): " << s << std::endl;
+	}
 }
 
 namespace gl {
@@ -115,16 +119,18 @@ namespace gl {
 			case 'r':
 				cur_renderer = (cur_renderer + 1) % all_renderers.size();
 				print_r_desc();
-				glutPostRedisplay();
+				reshapeFunc(win_w, win_h);
 				break;
 			// samples
 			case '+':
 				samples *= 2;
+				print_s_desc(samples);
 				glutPostRedisplay();
 				break;
 			case '-':
 				samples /= 2;
 				samples = (samples < 1) ? 1 : samples;
+				print_s_desc(samples);
 				glutPostRedisplay();
 				break;
 			// path tracing enabler

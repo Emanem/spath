@@ -114,11 +114,11 @@ namespace {
 			// write in the buffer - requires operator=
 			// from --> to types
 			template<typename U>
-			void write(const U* pU, const size_t num_el) {
+			void write(const U* pU, const size_t num_el, cl::Event& e) {
 				resize(num_el);
 				for(int i = 0; i < (int)num_el; ++i)
 					vec_data[i] = pU[i];
-				queue.enqueueWriteBuffer(buf, CL_TRUE, 0, sizeof(T)*num_el, &vec_data[0], 0);
+				queue.enqueueWriteBuffer(buf, CL_FALSE, 0, sizeof(T)*num_el, &vec_data[0], 0, &e);
 			}
 
 			// read the OpenCL buffer content to an array
@@ -202,14 +202,16 @@ namespace {
 			out.res_x = vp.res_x;
 			out.res_y = vp.res_y;
 			out.values.resize(out.res_x*out.res_y);
-			// let's initialize the OpenCL buffers (blocking
-			// suboptimal with data conversion)
+			// let's initialize the OpenCL buffers (non-blocking
+			// with data conversion)
+			// 0. create a std::vector of events for the buffers writes
+			std::vector<cl::Event>	ev(3);
 			// 1. vp rays
-			vp_buf_h->write<geom::ray>(&vp.rays[0], vp.rays.size());
+			vp_buf_h->write<geom::ray>(&vp.rays[0], vp.rays.size(), ev[0]);
 			// 2. tris
-			tris_buf_h->write<geom::triangle>(tris, n_tris),
+			tris_buf_h->write<geom::triangle>(tris, n_tris, ev[1]),
 			// 3. materials
-			mats_buf_h->write<scene::material>(mats, n_tris);
+			mats_buf_h->write<scene::material>(mats, n_tris, ev[2]);
 			// 4. create the buffer for output (no need to fill it in)
 			out_buf_h->resize(out.values.size());
 			// run the kernel
@@ -221,7 +223,7 @@ namespace {
 			k_render_flat.setArg(3, (cl_uint)n_tris);
 			k_render_flat.setArg(4, (cl_uint)n_samples);
 			k_render_flat.setArg(5, out_buf_h->buf);
-			cl_queue.enqueueNDRangeKernel(k_render_flat, cl::NDRange(0), cl::NDRange(vp.rays.size()));
+			cl_queue.enqueueNDRangeKernel(k_render_flat, cl::NDRange(0), cl::NDRange(vp.rays.size()), cl::NullRange, &ev);
 			cl_queue.finish();
 			const auto	e_time = std::chrono::high_resolution_clock::now();
 			std::printf("Done (%.1fs)\n", std::chrono::duration_cast<std::chrono::milliseconds>(e_time - s_time).count()/1000.0);
