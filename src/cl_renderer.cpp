@@ -21,6 +21,7 @@
 #include <fstream>
 #include <iostream>
 #include <chrono>
+#include <memory>
 
 namespace cl_data {
 	// change this from cl_float --> cl_double
@@ -88,22 +89,61 @@ namespace cl_data {
 namespace {
 	// as per http://simpleopencl.blogspot.com/2013/06/tutorial-simple-start-with-opencl-and-c.html
 	struct cl_r : public basic_renderer {
+		// const declarations for OpenCL buffer access (less verbose)
+		const static cl_mem_flags	WO = (CL_MEM_HOST_WRITE_ONLY|CL_MEM_READ_ONLY),
+						RO = (CL_MEM_HOST_READ_ONLY|CL_MEM_WRITE_ONLY);
+		// simple template to hold buffer and resize those
+		// as and when needed
+		template<typename T, cl_mem_flags Flags = WO>
+		struct buf_holder {
+			cl::Context&		ctx;
+			cl::CommandQueue&	queue;
+			cl::Buffer		buf;
+			std::vector<T>		vec_data;
+
+			buf_holder(cl::Context& c, cl::CommandQueue& q) : ctx(c), queue(q) {
+			}
+
+			void resize(const size_t num_el) {
+				if(vec_data.size() < num_el) {
+					vec_data.resize(num_el);
+					buf = cl::Buffer(ctx, Flags, sizeof(T)*num_el);
+				}
+			}
+
+			// write in the buffer - requires operator=
+			// from --> to types
+			template<typename U>
+			void write(const U* pU, const size_t num_el) {
+				resize(num_el);
+				for(int i = 0; i < (int)num_el; ++i)
+					vec_data[i] = pU[i];
+				queue.enqueueWriteBuffer(buf, CL_TRUE, 0, sizeof(T)*num_el, &vec_data[0], 0);
+			}
+
+			// read the OpenCL buffer content to an array
+			// Requires the array to be already sized
+			// correctly. Furthermore a lambda is needed
+			// to copy from --> to types
+			template<typename U, typename FnCopy>
+			void read(U* pU, FnCopy&& fnCopy) {
+				queue.enqueueReadBuffer(buf, CL_TRUE, 0, sizeof(T)*vec_data.size(), &vec_data[0]);
+				for(int i = 0; i < (int)vec_data.size(); ++i)
+					fnCopy(vec_data[i], pU[i]);
+			}
+		};
+
 		std::string		desc;
 		cl::Device		cl_dev;
 		cl::Context		cl_ctx;
 		cl::CommandQueue	cl_queue;
 		cl::Program		cl_prog;
-
-		template<typename T, typename U, cl_mem_flags Flags = (CL_MEM_HOST_WRITE_ONLY|CL_MEM_READ_ONLY)>
-		cl::Buffer fill_cl_vector(const T* pT, const size_t num_el) {
-			const size_t	sz = sizeof(U)*num_el;
-			cl::Buffer 	buf(cl_ctx, Flags, sz);
-			std::vector<U>	l(num_el);
-			for(int i = 0; i < (int)num_el; ++i)
-				l[i] = pT[i];
-			cl_queue.enqueueWriteBuffer(buf, CL_TRUE, 0, sz, &l[0], 0);
-			return buf;
-		}
+		// buf holders section
+		std::unique_ptr<buf_holder<cl_data::ray> >	vp_buf_h;
+		std::unique_ptr<buf_holder<cl_data::triangle> >	tris_buf_h;
+		std::unique_ptr<buf_holder<cl_data::material> >	mats_buf_h;
+		// output buffer
+		std::unique_ptr<buf_holder<cl_data::RGBA, RO> >	out_buf_h;
 
 		cl_r(const int x, const int y) : basic_renderer(x, y) {
 			// initialize the OpenCL context
@@ -146,6 +186,11 @@ namespace {
 			if(cl_prog.build({cl_dev}) != CL_SUCCESS) {
 				throw std::runtime_error(std::string("Error building: ") + cl_prog.getBuildInfo<CL_PROGRAM_BUILD_LOG>(cl_dev));
 			}
+			// setup the buffers
+			vp_buf_h = std::unique_ptr<buf_holder<cl_data::ray> >(new buf_holder<cl_data::ray>(cl_ctx, cl_queue));
+			tris_buf_h = std::unique_ptr<buf_holder<cl_data::triangle> >(new buf_holder<cl_data::triangle>(cl_ctx, cl_queue));
+			mats_buf_h = std::unique_ptr<buf_holder<cl_data::material> >(new buf_holder<cl_data::material>(cl_ctx, cl_queue));
+			out_buf_h = std::unique_ptr<buf_holder<cl_data::RGBA, RO> >(new buf_holder<cl_data::RGBA, RO>(cl_ctx, cl_queue));
 		}
 
 		virtual const char* get_description(void) const {
@@ -157,39 +202,38 @@ namespace {
 			out.res_x = vp.res_x;
 			out.res_y = vp.res_y;
 			out.values.resize(out.res_x*out.res_y);
-			// let's create the openCL buffers (blocking
+			// let's initialize the OpenCL buffers (blocking
 			// suboptimal with data conversion)
 			// 1. vp rays
-			cl::Buffer	vp_buf = fill_cl_vector<geom::ray, cl_data::ray>(&vp.rays[0], vp.rays.size()),
+			vp_buf_h->write<geom::ray>(&vp.rays[0], vp.rays.size());
 			// 2. tris
-					tris_buf = fill_cl_vector<geom::triangle, cl_data::triangle>(tris, n_tris),
+			tris_buf_h->write<geom::triangle>(tris, n_tris),
 			// 3. materials
-					mats_buf = fill_cl_vector<scene::material, cl_data::material>(mats, n_tris);
+			mats_buf_h->write<scene::material>(mats, n_tris);
 			// 4. create the buffer for output (no need to fill it in)
-			cl::Buffer	out_buf(cl_ctx, (CL_MEM_HOST_READ_ONLY|CL_MEM_WRITE_ONLY), sizeof(cl_data::RGBA)*out.values.size());
+			out_buf_h->resize(out.values.size());
 			// run the kernel
 			const auto	s_time = std::chrono::high_resolution_clock::now();
 			cl::Kernel	k_render_flat(cl_prog, k_fn.c_str());
-			k_render_flat.setArg(0, vp_buf);
-			k_render_flat.setArg(1, tris_buf);
-			k_render_flat.setArg(2, mats_buf);
+			k_render_flat.setArg(0, vp_buf_h->buf);
+			k_render_flat.setArg(1, tris_buf_h->buf);
+			k_render_flat.setArg(2, mats_buf_h->buf);
 			k_render_flat.setArg(3, (cl_uint)n_tris);
 			k_render_flat.setArg(4, (cl_uint)n_samples);
-			k_render_flat.setArg(5, out_buf);
+			k_render_flat.setArg(5, out_buf_h->buf);
 			cl_queue.enqueueNDRangeKernel(k_render_flat, cl::NDRange(0), cl::NDRange(vp.rays.size()));
 			cl_queue.finish();
 			const auto	e_time = std::chrono::high_resolution_clock::now();
 			std::printf("Done (%.1fs)\n", std::chrono::duration_cast<std::chrono::milliseconds>(e_time - s_time).count()/1000.0);
 			// read back
-			std::vector<cl_data::RGBA>	outbuf(out.values.size());
-			cl_queue.enqueueReadBuffer(out_buf, CL_TRUE, 0, sizeof(cl_data::RGBA)*outbuf.size(), &outbuf[0]);
-			// copy back into out
-			for(int i = 0; i < (int)outbuf.size(); ++i) {
-				out.values[i].r = outbuf[i].r;
-				out.values[i].g = outbuf[i].g;
-				out.values[i].b = outbuf[i].b;
-				out.values[i].a = outbuf[i].a;
-			}
+			out_buf_h->read(&out.values[0],
+				[](const cl_data::RGBA& in, scene::RGBA& out) -> void {
+					out.r = in.r;
+					out.g = in.g;
+					out.b = in.b;
+					out.a = in.a;
+				}
+			);
 		}
 
 		virtual void render_flat(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out) {
