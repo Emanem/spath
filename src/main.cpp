@@ -17,6 +17,7 @@
 
 #include "cpu_renderer.h"
 #include "cl_renderer.h"
+#include "vk_renderer.h"
 #include <iostream>
 #include <GL/glut.h>
 #include <memory>
@@ -239,10 +240,12 @@ int main(int argc, char *argv[]) {
 
 		// set the renderers
 		std::unique_ptr<scene::renderer>	pt_r(cpu_renderer::get(gl::win_w, gl::win_h)),
-							cl_r(cl_renderer::get(gl::win_w, gl::win_h));
+							cl_r(cl_renderer::get(gl::win_w, gl::win_h)),
+							vk_r(vk_renderer::get(gl::win_w, gl::win_h));
 		// add to the vector
 		all_renderers.push_back(&(*pt_r));
 		all_renderers.push_back(&(*cl_r));
+		all_renderers.push_back(&(*vk_r));
 		// print description
 		print_r_desc();
 
