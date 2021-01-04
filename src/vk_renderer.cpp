@@ -46,6 +46,7 @@ namespace {
 		vk::PipelineLayout			pipelinelayout;
 		vk::Pipeline				pipeline;
 		vk::CommandPool				commandpool;
+		vk::CommandBuffer			commandbuffer;
 
 		struct buf_holder {
 			vk::Device&					dev_;
@@ -178,22 +179,17 @@ namespace {
 			// update all buffers and 
 			update_bufs(x, y);
 
-			// this gives a vector of command buffers
-			auto cbuf = device.allocateCommandBuffers({commandpool, vk::CommandBufferLevel::ePrimary, 1});
+			commandbuffer.begin({{}, nullptr});
+			commandbuffer.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline);
+			commandbuffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelinelayout, 0, 1, &descset, 0, nullptr);
+			commandbuffer.dispatch(x*y, 1, 1);
+			commandbuffer.end();
 
-			cbuf[0].begin({{}, nullptr});
-			cbuf[0].bindPipeline(vk::PipelineBindPoint::eCompute, pipeline);
-			cbuf[0].bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelinelayout, 0, 1, &descset, 0, nullptr);
-			cbuf[0].dispatch(x*y, 1, 1);
-			cbuf[0].end();
-
-			vk::SubmitInfo si(0, nullptr, nullptr, 1, &cbuf[0], 0, nullptr);
+			vk::SubmitInfo si(0, nullptr, nullptr, 1, &commandbuffer, 0, nullptr);
 
 			queue.submit(1, &si, vk::Fence());
 
 			queue.waitIdle();
-
-			device.freeCommandBuffers(commandpool, cbuf);
 		}
 
 	// interface here
@@ -246,6 +242,9 @@ namespace {
 			// then setup the command pool for this queue family
 			commandpool = device.createCommandPool({{}, qIdx});
 
+			// this gives a vector of command buffers
+			commandbuffer = device.allocateCommandBuffers({commandpool, vk::CommandBufferLevel::ePrimary, 1})[0];
+
 			// initialize once
 			init_descset();
 			init_pipeline();
@@ -261,6 +260,8 @@ namespace {
 			device.destroyShaderModule(computeshader);
 			device.destroyDescriptorPool(descpool);
 			device.destroyDescriptorSetLayout(descsetlayout);
+			device.freeCommandBuffers(commandpool, commandbuffer);
+			device.destroyCommandPool(commandpool);
 			device.destroy();
 			instance.destroy();
 		}
