@@ -25,11 +25,55 @@
 
 namespace {
 	struct vk_r : public basic_renderer {
-		std::string	desc;
-		vk::Instance 	instance;
-		vk::Device 	device;
-		vk::Queue	queue;
-		vk::CommandPool	commandpool;
+		std::string				desc;
+		vk::Instance 				instance;
+		vk::PhysicalDeviceMemoryProperties	memprops;
+		vk::Device 				device;
+		vk::Queue				queue;
+		vk::CommandPool				commandpool;
+
+		struct buf_holder {
+			vk::Device&					dev_;
+			const vk::PhysicalDeviceMemoryProperties&	mprops_;
+			size_t						sz_;
+			vk::Buffer					buf_;
+			vk::DeviceMemory				bufmem_;
+
+			uint32_t find_memory_type(uint32_t mbits, const vk::MemoryPropertyFlags props) {
+				for(uint32_t i = 0; i < mprops_.memoryTypeCount; ++i) {
+					if ((mbits & (1 << i)) && ((mprops_.memoryTypes[i].propertyFlags & props) == props))
+						return i;
+				}
+				throw std::runtime_error("Can't find required memory type");
+			}
+
+			void cleanup(void) {
+				dev_.freeMemory(bufmem_);
+				dev_.destroyBuffer(buf_);
+			}
+
+			void resize(const size_t sz) {
+				if(sz > sz_) {
+					if(sz_)
+						cleanup();
+					buf_ = dev_.createBuffer({{}, sz, vk::BufferUsageFlagBits::eStorageBuffer});
+					auto memReq = dev_.getBufferMemoryRequirements(buf_);
+					vk::MemoryAllocateInfo	mai;
+					mai.allocationSize = memReq.size;
+					mai.memoryTypeIndex = find_memory_type(memReq.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible);
+					bufmem_ = dev_.allocateMemory(mai);
+					dev_.bindBufferMemory(buf_, bufmem_, 0);
+					sz_ = sz;
+				}
+			}
+
+			buf_holder(vk::Device& d, const vk::PhysicalDeviceMemoryProperties& p) : dev_(d), mprops_(p), sz_(0) {
+			}
+
+			~buf_holder() {
+				cleanup();
+			}
+		};
 
 		void init(const int x, const int y) {
 			// this gives a vector of command buffers
@@ -63,29 +107,32 @@ namespace {
 
 			// always use the first physical device
 			auto physicalDevices = instance.enumeratePhysicalDevices();
-			auto& physicalDevice = physicalDevices[0];
+			auto& physDev = physicalDevices[0];
 
 			// set desc
-			desc = std::string("Vulkan renderer on [") + physicalDevice.getProperties().deviceName + ']';
+			desc = std::string("Vulkan compute renderer on [") + physDev.getProperties().deviceName + ']';
 
 			// get the queue families props
-			auto qfProps = physicalDevice.getQueueFamilyProperties();
-			// find the first with graphical capabilities
+			auto qfProps = physDev.getQueueFamilyProperties();
+			// find the first with compute capabilities
 			int qIdx = -1;
 			for(const auto& qf : qfProps) {
-				if(qf.queueFlags & vk::QueueFlagBits::eGraphics) {
+				if((qf.queueFlags & vk::QueueFlagBits::eCompute) == vk::QueueFlagBits::eCompute) {
 					qIdx = &qf - &qfProps[0];
 					break;
 				}
 			}
 			if(-1 == qIdx)
-				throw std::runtime_error("Can't find graphics Vulkan queue");
+				throw std::runtime_error("Can't find compute Vulkan queue");
+
+			// get memory props
+			memprops = physDev.getMemoryProperties();
 
 			// create logical device, binding 1 queue
 			// of the logical family found above
 			vk::DeviceQueueCreateInfo 	dqci({}, qIdx, 1, nullptr);
 			vk::DeviceCreateInfo		dci({}, 1, &dqci); 	
-			device = physicalDevice.createDevice(dci);
+			device = physDev.createDevice(dci);
 
 			// after we got the logical device
 			// get the queue!
