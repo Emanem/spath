@@ -80,7 +80,7 @@ ray_intersect_res ray_intersect(const ray r, const triangle t) {
 	if(d > EPSILON && d < 1.0/EPSILON) {
 		const vec3 vd = vec3(r.dir)*d;
 		rv.d = d;
-		rv.point = vec3(r.pos) - vd;
+		rv.point = vec3(r.pos) + vd;
 		return rv;
 	}
 	return rv;
@@ -127,8 +127,7 @@ void render_flat(void) {
 }
 
 float get_rand(inout uint seed) {
-	//seed = (214013*(seed)+2531011);
-	seed = (21401*(seed)+253101);
+	seed = (214013*(seed)+2531011);
 	return 1.0*(((seed)>>16)&0x7FFF)/32767.0;
 }
 
@@ -152,7 +151,7 @@ vec3 rand_unit_vec(vec3 vec_in, inout uint rand_seed) {
 	return outv;
 }
 
- vec3 render_step(const ray r, const uint n_tris, inout uint rand_seed, const int idx_source, const int depth) {
+vec3 render_step0(const ray r, const uint n_tris, inout uint rand_seed, const int idx_source, const int depth) {
 	vec3	rv;
 	rv.x = 0.0;
 	rv.y = 0.0;
@@ -196,8 +195,60 @@ vec3 rand_unit_vec(vec3 vec_in, inout uint rand_seed) {
 	const vec3	ref_color = vec3(mats[idx].reflectance_color);
 	const vec3	BRDF = ref_color*(1.0/PI);
 	// recursive step - can't do in vulkan compute
-	//const vec3	rec_color = render_step(next_r, n_tris, rr.next_seed, idx, depth+1);
-	const vec3	rec_color = vec3(0.5, 0.5, 0.5);
+	const vec3	rec_color = vec3(0.0, 0.0, 0.0); //render_step1(next_r, n_tris, rand_seed, idx, depth+1);
+	// temporary variables steps
+	const vec3	b_in = BRDF * rec_color;
+	const vec3	pt_comp = b_in * (cos_theta * (1.0/p));
+	const vec3	em_comp = vec3(mats[idx].emittance_color);
+	return pt_comp + em_comp;
+}
+
+
+vec3 render_step(const ray r, const uint n_tris, inout uint rand_seed, const int idx_source, const int depth) {
+	vec3	rv;
+	rv.x = 0.0;
+	rv.y = 0.0;
+	rv.z = 0.0;
+	// just max 5 bounces for now...
+	// in case we want to use double precision
+	// the following code only works with
+	// max 3 bounces...
+	if(depth >= 5)
+		return rv;
+	// try to hit something
+	float	d = MAX_VALUE_DIST;
+	ray	next_r;
+	int	idx = -1;
+	for(int i = 0; i < n_tris; ++i) {
+		if(i == idx_source)
+			continue;
+		triangle		cur_tri = tris[i];
+		ray_intersect_res	rr = ray_intersect(r, cur_tri);
+		const float		cur_d = rr.d;
+		if((cur_d > 0.0) && (cur_d < d)) {
+			d = cur_d;
+			next_r.pos = vec4(rr.point, 0.0);
+			idx = i;
+		}
+	}
+	// if we haven't found an element
+	if(idx < 0)
+		return rv;
+	// get the next direction
+	// make sure the normal is against the ray..
+	vec3	adj_n = vec3(tris[idx].n);
+	if(dot(adj_n, vec3(r.dir)) > 0.0) {
+		adj_n *= -1.0;
+	}
+	next_r.dir = vec4(rand_unit_vec(adj_n, rand_seed), 0.0);
+	// probability of new ray
+	const float	p = 1.0/(PI*2.0);
+	// BRDF
+	const float	cos_theta = dot(vec3(next_r.dir), adj_n);
+	const vec3	ref_color = vec3(mats[idx].reflectance_color);
+	const vec3	BRDF = ref_color*(1.0/PI);
+	// recursive step - can't do in vulkan compute
+	const vec3	rec_color = render_step0(next_r, n_tris, rand_seed, idx, depth+1);
 	// temporary variables steps
 	const vec3	b_in = BRDF * rec_color;
 	const vec3	pt_comp = b_in * (cos_theta * (1.0/p));
@@ -208,30 +259,21 @@ vec3 rand_unit_vec(vec3 vec_in, inout uint rand_seed) {
 void render(const uint n_samples) {
 	uint g_id = get_id();
 
-	outimg[g_id].r = 0;
-	outimg[g_id].g = 0;
-	outimg[g_id].b = 0;
-	outimg[g_id].a = 0;
-
 	const uint	n_tris = 7; //hardcoded now
 
 	const ray	r = rays[g_id];
 	uint		seed = g_id;
-	/*vec3		accum = vec3(0);
+	vec3		accum = vec3(0);
 	for(int i =0; i < n_samples; ++i) {
 		accum += render_step(r, n_tris, seed, -1, 0);
 	}
 	// take averages
 	accum = accum * (1.0/n_samples);
-	outimg[g_id] = vec4_RGBA(vec4(accum, 1.0));*/
-	outimg[g_id].r = get_rand(seed);
-	outimg[g_id].g = get_rand(seed);
-	outimg[g_id].b = get_rand(seed);
-	outimg[g_id].a = 0.0;
+	outimg[g_id] = vec4_RGBA(vec4(accum, 1.0));
 }
 
 void main() {
-	render_flat();
-	//render(1);
+	//render_flat();
+	render(128);
 }
 
