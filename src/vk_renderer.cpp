@@ -96,6 +96,10 @@ namespace vk_data {
 }
 
 namespace {
+	uint32_t ceil(const uint32_t a, const uint32_t b) {
+		return (a > b) ? a : b;
+	}
+
 	struct vk_r : public basic_renderer {
 		std::string				desc;
 		vk::Instance 				instance;
@@ -144,8 +148,8 @@ namespace {
 					mai.memoryTypeIndex = find_memory_type(memReq.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible);
 					bufmem_ = dev_.allocateMemory(mai);
 					dev_.bindBufferMemory(buf_, bufmem_, 0);
-					sz_ = sz;
 				}
+				sz_ = sz;
 			}
 
 			buf_holder(vk::Device& d, const vk::PhysicalDeviceMemoryProperties& p) : dev_(d), mprops_(p), sz_(0) {
@@ -245,13 +249,13 @@ namespace {
 				throw std::runtime_error("Can't create computet pipeline!");
 		}
 
-		void update_bufs(const int x, const int y) {
-			outbuf->resize(x*y*sizeof(vk_data::rgba));
+		void update_bufs(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples) {
+			outbuf->resize(vp.res_x*vp.res_y);
 			// update the desc set
 			vk::DescriptorBufferInfo	dbi[1];
 			dbi[0].buffer = outbuf->buf_;
 			dbi[0].offset = 0;
-			dbi[0].range = outbuf->sz_;
+			dbi[0].range = outbuf->sz_*sizeof(vk_data::rgba);
 
 			vk::WriteDescriptorSet	wds;
 			wds.dstSet = descset;
@@ -263,14 +267,14 @@ namespace {
 			device.updateDescriptorSets(1, &wds, 0, nullptr);
 		}
 
-		void update(const int x, const int y) {
+		void update(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples) {
 			// update all buffers and 
-			update_bufs(x, y);
+			update_bufs(vp, tris, mats, n_tris, n_samples);
 
 			commandbuffer.begin({{}, nullptr});
 			commandbuffer.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline);
 			commandbuffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelinelayout, 0, 1, &descset, 0, nullptr);
-			commandbuffer.dispatch(x*y, 1, 1);
+			commandbuffer.dispatch(ceil(vp.res_x*vp.res_y, 1), 1, 1);
 			commandbuffer.end();
 
 			vk::SubmitInfo si(0, nullptr, nullptr, 1, &commandbuffer, 0, nullptr);
@@ -372,7 +376,7 @@ namespace {
 
 		virtual void render_flat(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out) {
 			const auto	s_time = std::chrono::high_resolution_clock::now();
-			update(vp.res_x, vp.res_y);
+			update(vp, tris, mats, n_samples, n_samples);
 			const auto	e_time = std::chrono::high_resolution_clock::now();
 			std::printf("Done (%.1fs)\n", std::chrono::duration_cast<std::chrono::milliseconds>(e_time - s_time).count()/1000.0);
 			get_output(out);
@@ -380,7 +384,7 @@ namespace {
 
 		virtual void render(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out) {
 			const auto	s_time = std::chrono::high_resolution_clock::now();
-			update(vp.res_x, vp.res_y);
+			update(vp, tris, mats, n_samples, n_samples);
 			const auto	e_time = std::chrono::high_resolution_clock::now();
 			std::printf("Done (%.1fs)\n", std::chrono::duration_cast<std::chrono::milliseconds>(e_time - s_time).count()/1000.0);
 			get_output(out);

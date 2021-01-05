@@ -16,7 +16,8 @@ layout(std140, binding = 0) buffer buf
 };
 
 void main() {
-	imageData[gl_GlobalInvocationID.x].r = 1.0 * (gl_GlobalInvocationID.x%1024) / 1024.0;
-	imageData[gl_GlobalInvocationID.x].g = imageData[gl_GlobalInvocationID.x].b = imageData[gl_GlobalInvocationID.x].a = 0.0;
+	uint	idx = gl_GlobalInvocationID.x;
+	imageData[idx].r = 1.0 * (idx%640) / 640.0;
+	imageData[idx].g = imageData[idx].b = imageData[idx].a = 0.0;
 }
 
