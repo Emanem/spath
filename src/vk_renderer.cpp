@@ -23,7 +23,68 @@
 #include <chrono>
 #include <memory>
 
-namespace {
+namespace vk_data {
+	typedef float cl_real;
+
+	struct vec4 {
+		cl_real	x,
+			y,
+			z,
+			__padding;
+
+		vec4& operator=(const geom::vec3& rhs) {
+			x = rhs.x;
+			y = rhs.y;
+			z = rhs.z;
+			return *this;
+		}
+	};
+
+	static_assert(sizeof(vec4) == 16, "struct vec4 is not aligned to 16 bytes");
+
+	struct ray {
+		vec4	pos,
+			dir;
+
+		ray& operator=(const geom::ray& rhs) {
+			pos = rhs.pos;
+			dir = rhs.dir;
+			return *this;
+		}
+	};
+
+	static_assert(!(sizeof(ray)%16), "struct ray is not aligned to 16 bytes");
+
+	struct triangle {
+		vec4	v0,
+			v1,
+			v2,
+			n;
+
+		triangle& operator=(const geom::triangle& rhs) {
+			v0 = rhs.v0;
+			v1 = rhs.v1;
+			v2 = rhs.v2;
+			n = rhs.n;
+			return *this;
+		}
+	};
+
+	static_assert(!(sizeof(triangle)%16), "struct triangle is not aligned to 16 bytes");
+
+	struct material {
+		vec4	reflectance_color,
+			emittance_color;
+
+		material& operator=(const scene::material& rhs) {
+			reflectance_color = rhs.reflectance_color;
+			emittance_color = rhs.emittance_color;
+			return *this;
+		}
+	};
+
+	static_assert(!(sizeof(material)%16), "struct material is not aligned to 16 bytes");
+
 	struct rgba {
 		float	r,
 			g,
@@ -31,8 +92,10 @@ namespace {
 			a;
 	};
 
-	static_assert(sizeof(rgba) == 16, "struct rgba is not aligned to 4 bytes");
+	static_assert(sizeof(rgba) == 16, "struct rgba is not aligned to 16 bytes");
+}
 
+namespace {
 	struct vk_r : public basic_renderer {
 		std::string				desc;
 		vk::Instance 				instance;
@@ -48,6 +111,7 @@ namespace {
 		vk::CommandPool				commandpool;
 		vk::CommandBuffer			commandbuffer;
 
+		template<typename T>
 		struct buf_holder {
 			vk::Device&					dev_;
 			const vk::PhysicalDeviceMemoryProperties&	mprops_;
@@ -72,7 +136,8 @@ namespace {
 				if(sz > sz_) {
 					if(sz_)
 						cleanup();
-					buf_ = dev_.createBuffer({{}, sz, vk::BufferUsageFlagBits::eStorageBuffer});
+					const size_t	r_size = sizeof(T)*sz;
+					buf_ = dev_.createBuffer({{}, r_size, vk::BufferUsageFlagBits::eStorageBuffer});
 					auto memReq = dev_.getBufferMemoryRequirements(buf_);
 					vk::MemoryAllocateInfo	mai;
 					mai.allocationSize = memReq.size;
@@ -89,10 +154,33 @@ namespace {
 			~buf_holder() {
 				cleanup();
 			}
+
+			template<typename Fn>
+			void read(Fn&& f) {
+				const T* m_buf = (const T*)dev_.mapMemory(bufmem_, 0, sz_*sizeof(T));
+				for(size_t i = 0; i < sz_; ++i) {
+					f(i, m_buf[i]);
+				}
+				dev_.unmapMemory(bufmem_);
+			}
+
+			template<typename Fn>
+			void write(Fn&& f) {
+				T* m_buf = (T*)dev_.mapMemory(bufmem_, 0, sz_*sizeof(T));
+				for(size_t i = 0; i < sz_; ++i) {
+					f(i, &m_buf[i]);
+				}
+				dev_.unmapMemory(bufmem_);
+			}
 		};
 
+		// input
+		std::unique_ptr<buf_holder<vk_data::ray>>	raybuf;
+		std::unique_ptr<buf_holder<vk_data::triangle>>	tribuf;
+		std::unique_ptr<buf_holder<vk_data::material>>	matbuf;
+
 		// buffers
-		std::unique_ptr<buf_holder>	outbuf;
+		std::unique_ptr<buf_holder<vk_data::rgba>>	outbuf;
 
 		void init_descset(void) {
 			// first layout
@@ -158,7 +246,7 @@ namespace {
 		}
 
 		void update_bufs(const int x, const int y) {
-			outbuf->resize(x*y*sizeof(rgba));
+			outbuf->resize(x*y*sizeof(vk_data::rgba));
 			// update the desc set
 			vk::DescriptorBufferInfo	dbi[1];
 			dbi[0].buffer = outbuf->buf_;
@@ -190,6 +278,8 @@ namespace {
 			queue.submit(1, &si, vk::Fence());
 
 			queue.waitIdle();
+
+			commandbuffer.reset({});
 		}
 
 	// interface here
@@ -250,10 +340,10 @@ namespace {
 			init_pipeline();
 
 			// setup all the buffers
-			outbuf = std::unique_ptr<buf_holder>(new buf_holder(device, memprops));
-
-			// update the buffers
-			update(x, y);
+			raybuf = std::unique_ptr<buf_holder<vk_data::ray>>(new buf_holder<vk_data::ray>(device, memprops));
+			tribuf = std::unique_ptr<buf_holder<vk_data::triangle>>(new buf_holder<vk_data::triangle>(device, memprops));
+			matbuf = std::unique_ptr<buf_holder<vk_data::material>>(new buf_holder<vk_data::material>(device, memprops));
+			outbuf = std::unique_ptr<buf_holder<vk_data::rgba>>(new buf_holder<vk_data::rgba>(device, memprops));
 		}
 
 		~vk_r() {
@@ -267,17 +357,13 @@ namespace {
 		}
 
 		void get_output(scene::bitmap& out) {
-			auto mapmem = device.mapMemory(outbuf->bufmem_, 0, outbuf->sz_);
-			const size_t	n_els = outbuf->sz_/sizeof(rgba);
-			const rgba*	m_buf = (const rgba*)mapmem;
-			out.values.resize(n_els);
-			for(size_t i = 0; i < n_els; ++i) {
-				out.values[i].r = 255.0*m_buf[i].r;
-				out.values[i].g = 255.0*m_buf[i].g;
-				out.values[i].b = 255.0*m_buf[i].b;
+			out.values.resize(outbuf->sz_);
+			outbuf->read([&out](const size_t i, const vk_data::rgba& v) {
+				out.values[i].r = 255.0*v.r;
+				out.values[i].g = 255.0*v.g;
+				out.values[i].b = 255.0*v.b;
 				out.values[i].a = 255;
-			}
-			device.unmapMemory(outbuf->bufmem_);
+			});
 		}
 
 		virtual const char* get_description(void) const {
