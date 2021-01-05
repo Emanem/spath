@@ -10,14 +10,246 @@ struct rgba {
 		a;
 };
 
-layout(std140, binding = 0) buffer buf
-{
-   rgba imageData[];
+struct ray {
+	vec4	pos,
+		dir;
 };
 
+struct triangle {
+	vec4	v0,
+		v1,
+		v2,
+		n;
+};
+
+struct material {
+	vec4	reflectance_color,
+		emittance_color;
+};
+
+layout(std140, binding = 0) buffer outbuf
+{
+   rgba outimg[];
+};
+
+layout(std140, binding = 1) buffer raybuf
+{
+   ray rays[];
+};
+
+layout(std140, binding = 2) buffer tribuf
+{
+   triangle tris[];
+};
+
+layout(std140, binding = 3) buffer matbuf
+{
+   material mats[];
+};
+
+const float	EPSILON = 0.00000000000001;
+const float	MAX_VALUE_DIST = 1000000000000.0;
+const float	PI = 3.14159265359;
+
+struct ray_intersect_res {
+	float 	d;
+	vec3	point;
+};
+
+ray_intersect_res ray_intersect(const ray r, const triangle t) {
+	ray_intersect_res	rv;
+	rv.d = -1.0;
+	rv.point = vec3(0.0);
+	const vec3	edge1 = vec3(t.v1 - t.v0), //v_diff(&t->v1, &t->v0),
+			edge2 = vec3(t.v2 - t.v0), //v_diff(&t->v2, &t->v0),
+			h = cross(vec3(r.dir), edge2);
+	const float	a = dot(edge1, h);
+	if(a > -EPSILON && a < EPSILON)
+		return rv;
+	const float	f = 1.0/a;
+	const vec3	s = vec3(r.pos - t.v0);
+	const float	u = f * dot(s, h);
+	if(u < 0.0 || u > 1.0)
+		return rv;
+	const vec3	q = cross(s, edge1);
+	const float	v = f * dot(vec3(r.dir), q);
+	if(v < 0.0 || (u+v)> 1.0)
+		return rv;
+	// compute intersection
+	const float	d = f * dot(edge2, q);
+	if(d > EPSILON && d < 1.0/EPSILON) {
+		const vec3 vd = vec3(r.dir)*d;
+		rv.d = d;
+		rv.point = vec3(r.pos) - vd;
+		return rv;
+	}
+	return rv;
+}
+
+float clampcnv(const float v) {
+	return (v < 0.0) ? 0.0 : ((v > 1.0) ? 1.0 : v);
+}
+
+rgba vec4_RGBA(const vec4 color) {
+	rgba	rv;
+	rv.r = clampcnv(color.x);
+	rv.g = clampcnv(color.y);
+	rv.b = clampcnv(color.z);
+	rv.a = 0;
+	return rv;
+}
+
+uint get_id(void) {
+	return gl_GlobalInvocationID.x;
+}
+
+void render_flat(void) {
+	uint g_id = get_id();
+
+	outimg[g_id].r = 0;
+	outimg[g_id].g = 0;
+	outimg[g_id].b = 0;
+	outimg[g_id].a = 0;
+
+	const uint	n_tris = 7; //hardcoded now
+
+	const ray	r = rays[g_id];
+	float		d = MAX_VALUE_DIST;
+	for(int i = 0; i < n_tris; ++i) {
+		vec3		unused;
+		triangle	cur_tri = tris[i];
+		const float	cur_d = ray_intersect(r, cur_tri).d;
+		if((cur_d > 0.0) && (cur_d < d)) {
+			d = cur_d;
+			outimg[g_id] = vec4_RGBA(mats[i].reflectance_color);
+		}
+	}
+}
+
+struct get_rand_res {
+	float 	v;
+	uint	next_seed;
+};
+
+get_rand_res get_rand(uint seed) {
+	get_rand_res	rv;
+	rv.next_seed = (214013*(seed)+2531011);
+	seed = rv.next_seed;
+	rv.v = 1.0*(((seed)>>16)&0x7FFF)/32767.0;
+	return rv;
+}
+
+struct rand_unit_vec_res {
+	vec3	v;
+	uint	next_seed;
+};
+
+rand_unit_vec_res rand_unit_vec(vec3 vec_in, uint rand_seed) {
+	// first get two random points
+	get_rand_res	rr = get_rand(rand_seed);
+	const float	rv1 = rr.v;
+	rr = get_rand(rr.next_seed);
+	const float	rv2 = rr.v;
+	// then transform to spherical coords
+	const float	rv_xz = 1.0*rv1*PI*2.0,
+			rv_y = 1.0*rv2*PI*0.5,
+			f_x = cos(rv_y),
+			f_y = sin(rv_y);
+	// directions
+	vec3		outv;
+	outv.x = cos(rv_xz)*f_x;
+	outv.y = f_y;
+	outv.z = sin(rv_xz)*f_x;
+	if(dot(vec_in, outv) < 0.0) {
+		outv *= -1.0;
+	}
+	rand_unit_vec_res	rv;
+	rv.v = outv;
+	rv.next_seed = rr.next_seed;
+	return rv;
+}
+
+/*
+vec3 render_step(const ray* r, global triangle* tris, global material* mats, const size_t n_tris, uint* rand_seed, const int idx_source, const int depth) {
+	vec3	rv;
+	rv.x = 0.0;
+	rv.y = 0.0;
+	rv.z = 0.0;
+	// just max 5 bounces for now...
+	// in case we want to use double precision
+	// the following code only works with
+	// max 3 bounces...
+	if(depth >= 5)
+		return rv;
+	// try to hit something
+	float	d = MAX_VALUE_DIST;
+	ray	next_r;
+	int	idx = -1;
+	for(int i = 0; i < n_tris; ++i) {
+		if(i == idx_source)
+			continue;
+		vec3		unused;
+		triangle	cur_tri = tris[i];
+		const float	cur_d = ray_intersect(r, &cur_tri, &unused);
+		if((cur_d > 0.0) && (cur_d < d)) {
+			d = cur_d;
+			next_r.pos = unused;
+			idx = i;
+		}
+	}
+	// if we haven't found an element
+	if(idx < 0)
+		return rv;
+	// get the next direction
+	// make sure the normal is against the ray..
+	vec3	adj_n = tris[idx].n;
+	if(v_dot(&adj_n, &r->dir) > 0.0) {
+		adj_n = v_mult(&adj_n, -1.0);
+	}
+	next_r.dir = rand_unit_vec(&adj_n, rand_seed);
+	// probability of new ray
+	const float	p = 1.0/(PI*2.0);
+	// BRDF
+	const float	cos_theta = v_dot(&next_r.dir, &adj_n);
+	const vec3	ref_color = mats[idx].reflectance_color;
+	const vec3	BRDF = v_mult(&ref_color, (1.0/PI));
+	// recursive step
+	const vec3	rec_color = render_step(&next_r, tris, mats, n_tris, rand_seed, idx, depth+1);
+	// temporary variables steps
+	const vec3	b_in = v_multv(&BRDF, &rec_color);
+	const vec3	pt_comp = v_mult(&b_in, cos_theta * (1.0/p));
+	const vec3	em_comp = mats[idx].emittance_color;
+	return v_add(&pt_comp, &em_comp);
+}
+
+void kernel render(global ray* rays, global triangle* tris, global material* mats, const unsigned int n_tris, const unsigned int n_samples, global RGBA* out) {
+	size_t g_id = get_global_id(0);
+
+	out[g_id].r = 0;
+	out[g_id].g = 0;
+	out[g_id].b = 0;
+	out[g_id].a = 0;
+
+	const ray	r = rays[g_id];
+	uint		seed = g_id;
+	vec3		accum;
+	accum.x = 0.0;
+	accum.y = 0.0;
+	accum.z = 0.0;
+	for(int i =0; i < n_samples; ++i) {
+		vec3	tmp = render_step(&r, tris, mats, n_tris, &seed, -1, 0);
+		accum = v_add(&accum, &tmp);
+	}
+	// take averages
+	accum = v_mult(&accum, 1.0/n_samples);
+	out[g_id] = vec3_RGBA(accum);
+}
+*/
+
 void main() {
-	uint	idx = gl_GlobalInvocationID.x;
-	imageData[idx].r = 1.0 * (idx%640) / 640.0;
-	imageData[idx].g = imageData[idx].b = imageData[idx].a = 0.0;
+	/*uint	idx = gl_GlobalInvocationID.x;
+	outimg[idx].r = 1.0 * (idx%640) / 640.0;
+	outimg[idx].g = outimg[idx].b = outimg[idx].a = 0.0;*/
+	render_flat();
 }
 

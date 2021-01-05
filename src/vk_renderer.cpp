@@ -188,11 +188,23 @@ namespace {
 
 		void init_descset(void) {
 			// first layout
-			vk::DescriptorSetLayoutBinding	dslb[1];
+			vk::DescriptorSetLayoutBinding	dslb[4];
 			dslb[0].binding = 0;
 			dslb[0].descriptorType = vk::DescriptorType::eStorageBuffer;
 			dslb[0].descriptorCount = 1;
 			dslb[0].stageFlags = vk::ShaderStageFlagBits::eCompute;
+			dslb[1].binding = 1;
+			dslb[1].descriptorType = vk::DescriptorType::eStorageBuffer;
+			dslb[1].descriptorCount = 1;
+			dslb[1].stageFlags = vk::ShaderStageFlagBits::eCompute;
+			dslb[2].binding = 2;
+			dslb[2].descriptorType = vk::DescriptorType::eStorageBuffer;
+			dslb[2].descriptorCount = 1;
+			dslb[2].stageFlags = vk::ShaderStageFlagBits::eCompute;
+			dslb[3].binding = 3;
+			dslb[3].descriptorType = vk::DescriptorType::eStorageBuffer;
+			dslb[3].descriptorCount = 1;
+			dslb[3].stageFlags = vk::ShaderStageFlagBits::eCompute;
 
 			descsetlayout = device.createDescriptorSetLayout({{}, sizeof(dslb)/sizeof(dslb[0]), dslb });
 
@@ -250,21 +262,46 @@ namespace {
 		}
 
 		void update_bufs(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples) {
+			raybuf->resize(vp.res_x*vp.res_y);
+			raybuf->write([&vp](const size_t i, vk_data::ray* p){
+				*p = vp.rays[i];
+			});
+			tribuf->resize(n_tris);
+			tribuf->write([tris](const size_t i, vk_data::triangle* p){
+				*p = tris[i];
+			});
+			matbuf->resize(n_tris);
+			matbuf->write([mats](const size_t i, vk_data::material* p){
+				*p = mats[i];
+			});
 			outbuf->resize(vp.res_x*vp.res_y);
 			// update the desc set
-			vk::DescriptorBufferInfo	dbi[1];
+			// these could be 4 variables, don't need
+			// to be in array
+			vk::DescriptorBufferInfo	dbi[4];
 			dbi[0].buffer = outbuf->buf_;
 			dbi[0].offset = 0;
 			dbi[0].range = outbuf->sz_*sizeof(vk_data::rgba);
+			dbi[1].buffer = raybuf->buf_;
+			dbi[1].offset = 0;
+			dbi[1].range = raybuf->sz_*sizeof(vk_data::ray);
+			dbi[2].buffer = tribuf->buf_;
+			dbi[2].offset = 0;
+			dbi[2].range = tribuf->sz_*sizeof(vk_data::triangle);
+			dbi[3].buffer = matbuf->buf_;
+			dbi[3].offset = 0;
+			dbi[3].range = matbuf->sz_*sizeof(vk_data::material);
 
-			vk::WriteDescriptorSet	wds;
-			wds.dstSet = descset;
-			wds.dstBinding = 0;
-			wds.descriptorCount = sizeof(dbi)/sizeof(dbi[0]);
-			wds.descriptorType = vk::DescriptorType::eStorageBuffer;
-			wds.pBufferInfo = dbi;
+			vk::WriteDescriptorSet	wds[4];
+			for(size_t i = 0; i < 4; ++i) {
+				wds[i].dstSet = descset;
+				wds[i].dstBinding = i;
+				wds[i].descriptorCount = 1;
+				wds[i].descriptorType = vk::DescriptorType::eStorageBuffer;
+				wds[i].pBufferInfo = &dbi[i];
+			}
 
-			device.updateDescriptorSets(1, &wds, 0, nullptr);
+			device.updateDescriptorSets(sizeof(wds)/sizeof(wds[0]), &wds[0], 0, nullptr);
 		}
 
 		void update(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples) {
