@@ -126,30 +126,16 @@ void render_flat(void) {
 	}
 }
 
-struct get_rand_res {
-	float 	v;
-	uint	next_seed;
-};
-
-get_rand_res get_rand(uint seed) {
-	get_rand_res	rv;
-	rv.next_seed = (214013*(seed)+2531011);
-	seed = rv.next_seed;
-	rv.v = 1.0*(((seed)>>16)&0x7FFF)/32767.0;
-	return rv;
+float get_rand(inout uint seed) {
+	//seed = (214013*(seed)+2531011);
+	seed = (21401*(seed)+253101);
+	return 1.0*(((seed)>>16)&0x7FFF)/32767.0;
 }
 
-struct rand_unit_vec_res {
-	vec3	v;
-	uint	next_seed;
-};
-
-rand_unit_vec_res rand_unit_vec(vec3 vec_in, uint rand_seed) {
+vec3 rand_unit_vec(vec3 vec_in, inout uint rand_seed) {
 	// first get two random points
-	get_rand_res	rr = get_rand(rand_seed);
-	const float	rv1 = rr.v;
-	rr = get_rand(rr.next_seed);
-	const float	rv2 = rr.v;
+	const float	rv1 = get_rand(rand_seed),
+	      		rv2 = get_rand(rand_seed);
 	// then transform to spherical coords
 	const float	rv_xz = 1.0*rv1*PI*2.0,
 			rv_y = 1.0*rv2*PI*0.5,
@@ -163,14 +149,10 @@ rand_unit_vec_res rand_unit_vec(vec3 vec_in, uint rand_seed) {
 	if(dot(vec_in, outv) < 0.0) {
 		outv *= -1.0;
 	}
-	rand_unit_vec_res	rv;
-	rv.v = outv;
-	rv.next_seed = rr.next_seed;
-	return rv;
+	return outv;
 }
 
-/*
-vec3 render_step(const ray* r, global triangle* tris, global material* mats, const size_t n_tris, uint* rand_seed, const int idx_source, const int depth) {
+ vec3 render_step(const ray r, const uint n_tris, inout uint rand_seed, const int idx_source, const int depth) {
 	vec3	rv;
 	rv.x = 0.0;
 	rv.y = 0.0;
@@ -188,12 +170,12 @@ vec3 render_step(const ray* r, global triangle* tris, global material* mats, con
 	for(int i = 0; i < n_tris; ++i) {
 		if(i == idx_source)
 			continue;
-		vec3		unused;
-		triangle	cur_tri = tris[i];
-		const float	cur_d = ray_intersect(r, &cur_tri, &unused);
+		triangle		cur_tri = tris[i];
+		ray_intersect_res	rr = ray_intersect(r, cur_tri);
+		const float		cur_d = rr.d;
 		if((cur_d > 0.0) && (cur_d < d)) {
 			d = cur_d;
-			next_r.pos = unused;
+			next_r.pos = vec4(rr.point, 0.0);
 			idx = i;
 		}
 	}
@@ -202,54 +184,54 @@ vec3 render_step(const ray* r, global triangle* tris, global material* mats, con
 		return rv;
 	// get the next direction
 	// make sure the normal is against the ray..
-	vec3	adj_n = tris[idx].n;
-	if(v_dot(&adj_n, &r->dir) > 0.0) {
-		adj_n = v_mult(&adj_n, -1.0);
+	vec3	adj_n = vec3(tris[idx].n);
+	if(dot(adj_n, vec3(r.dir)) > 0.0) {
+		adj_n *= -1.0;
 	}
-	next_r.dir = rand_unit_vec(&adj_n, rand_seed);
+	next_r.dir = vec4(rand_unit_vec(adj_n, rand_seed), 0.0);
 	// probability of new ray
 	const float	p = 1.0/(PI*2.0);
 	// BRDF
-	const float	cos_theta = v_dot(&next_r.dir, &adj_n);
-	const vec3	ref_color = mats[idx].reflectance_color;
-	const vec3	BRDF = v_mult(&ref_color, (1.0/PI));
-	// recursive step
-	const vec3	rec_color = render_step(&next_r, tris, mats, n_tris, rand_seed, idx, depth+1);
+	const float	cos_theta = dot(vec3(next_r.dir), adj_n);
+	const vec3	ref_color = vec3(mats[idx].reflectance_color);
+	const vec3	BRDF = ref_color*(1.0/PI);
+	// recursive step - can't do in vulkan compute
+	//const vec3	rec_color = render_step(next_r, n_tris, rr.next_seed, idx, depth+1);
+	const vec3	rec_color = vec3(0.5, 0.5, 0.5);
 	// temporary variables steps
-	const vec3	b_in = v_multv(&BRDF, &rec_color);
-	const vec3	pt_comp = v_mult(&b_in, cos_theta * (1.0/p));
-	const vec3	em_comp = mats[idx].emittance_color;
-	return v_add(&pt_comp, &em_comp);
+	const vec3	b_in = BRDF * rec_color;
+	const vec3	pt_comp = b_in * (cos_theta * (1.0/p));
+	const vec3	em_comp = vec3(mats[idx].emittance_color);
+	return pt_comp + em_comp;
 }
 
-void kernel render(global ray* rays, global triangle* tris, global material* mats, const unsigned int n_tris, const unsigned int n_samples, global RGBA* out) {
-	size_t g_id = get_global_id(0);
+void render(const uint n_samples) {
+	uint g_id = get_id();
 
-	out[g_id].r = 0;
-	out[g_id].g = 0;
-	out[g_id].b = 0;
-	out[g_id].a = 0;
+	outimg[g_id].r = 0;
+	outimg[g_id].g = 0;
+	outimg[g_id].b = 0;
+	outimg[g_id].a = 0;
+
+	const uint	n_tris = 7; //hardcoded now
 
 	const ray	r = rays[g_id];
 	uint		seed = g_id;
-	vec3		accum;
-	accum.x = 0.0;
-	accum.y = 0.0;
-	accum.z = 0.0;
+	/*vec3		accum = vec3(0);
 	for(int i =0; i < n_samples; ++i) {
-		vec3	tmp = render_step(&r, tris, mats, n_tris, &seed, -1, 0);
-		accum = v_add(&accum, &tmp);
+		accum += render_step(r, n_tris, seed, -1, 0);
 	}
 	// take averages
-	accum = v_mult(&accum, 1.0/n_samples);
-	out[g_id] = vec3_RGBA(accum);
+	accum = accum * (1.0/n_samples);
+	outimg[g_id] = vec4_RGBA(vec4(accum, 1.0));*/
+	outimg[g_id].r = get_rand(seed);
+	outimg[g_id].g = get_rand(seed);
+	outimg[g_id].b = get_rand(seed);
+	outimg[g_id].a = 0.0;
 }
-*/
 
 void main() {
-	/*uint	idx = gl_GlobalInvocationID.x;
-	outimg[idx].r = 1.0 * (idx%640) / 640.0;
-	outimg[idx].g = outimg[idx].b = outimg[idx].a = 0.0;*/
 	render_flat();
+	//render(1);
 }
 
