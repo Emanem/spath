@@ -128,6 +128,8 @@ namespace {
 		struct buf_holder {
 			vk::Device&					dev_;
 			const vk::PhysicalDeviceMemoryProperties&	mprops_;
+			vk::DescriptorSet&				ds_;
+			const uint32_t					binding_;
 			size_t						sz_;
 			vk::Buffer					buf_;
 			vk::DeviceMemory				bufmem_;
@@ -157,11 +159,26 @@ namespace {
 					mai.memoryTypeIndex = find_memory_type(memReq.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible);
 					bufmem_ = dev_.allocateMemory(mai);
 					dev_.bindBufferMemory(buf_, bufmem_, 0);
+
+					// update the desc set
+					vk::DescriptorBufferInfo	dbi;
+					dbi.buffer = buf_;
+					dbi.offset = 0;
+					dbi.range = sz*sizeof(T);
+
+					vk::WriteDescriptorSet	wds;
+					wds.dstSet = ds_;
+					wds.dstBinding = binding_;
+					wds.descriptorCount = 1;
+					wds.descriptorType = vk::DescriptorType::eStorageBuffer;
+					wds.pBufferInfo = &dbi;
+
+					dev_.updateDescriptorSets(1, &wds, 0, nullptr);
 				}
 				sz_ = sz;
 			}
 
-			buf_holder(vk::Device& d, const vk::PhysicalDeviceMemoryProperties& p) : dev_(d), mprops_(p), sz_(0) {
+			buf_holder(vk::Device& d, const vk::PhysicalDeviceMemoryProperties& p, vk::DescriptorSet& ds, const uint32_t binding) : dev_(d), mprops_(p), ds_(ds), binding_(binding), sz_(0) {
 			}
 
 			~buf_holder() {
@@ -201,7 +218,7 @@ namespace {
 				throw std::runtime_error("Can't find required memory type");
 			}
 
-			uniform_holder(vk::Device& d, const vk::PhysicalDeviceMemoryProperties& p, const vk::DescriptorSet& ds, const uint32_t binding) : dev_(d) {
+			uniform_holder(vk::Device& d, const vk::PhysicalDeviceMemoryProperties& p, vk::DescriptorSet& ds, const uint32_t binding) : dev_(d) {
 				const size_t	r_size = sizeof(T);
 				buf_ = dev_.createBuffer({{}, r_size, vk::BufferUsageFlagBits::eUniformBuffer});
 				auto memReq = dev_.getBufferMemoryRequirements(buf_);
@@ -347,41 +364,9 @@ namespace {
 			});
 			outbuf->resize(vp.res_x*vp.res_y);
 			inputsbuf->write({n_tris, vp.res_x*vp.res_y, n_samples, r_flat ? 1 : 0});
-			// update the desc set
-			// these could be 4 variables, don't need
-			// to be in array
-			// we need to update here in case the resize
-			// above trigger a buffer regeneration
-			vk::DescriptorBufferInfo	dbi[5];
-			dbi[0].buffer = outbuf->buf_;
-			dbi[0].offset = 0;
-			dbi[0].range = outbuf->sz_*sizeof(vk_data::rgba);
-			dbi[1].buffer = raybuf->buf_;
-			dbi[1].offset = 0;
-			dbi[1].range = raybuf->sz_*sizeof(vk_data::ray);
-			dbi[2].buffer = tribuf->buf_;
-			dbi[2].offset = 0;
-			dbi[2].range = tribuf->sz_*sizeof(vk_data::triangle);
-			dbi[3].buffer = matbuf->buf_;
-			dbi[3].offset = 0;
-			dbi[3].range = matbuf->sz_*sizeof(vk_data::material);
-
-			vk::WriteDescriptorSet	wds[4];
-			for(size_t i = 0; i < 4; ++i) {
-				wds[i].dstSet = descset;
-				wds[i].dstBinding = i;
-				wds[i].descriptorCount = 1;
-				wds[i].descriptorType = vk::DescriptorType::eStorageBuffer;
-				wds[i].pBufferInfo = &dbi[i];
-			}
-
-			device.updateDescriptorSets(sizeof(wds)/sizeof(wds[0]), &wds[0], 0, nullptr);
 		}
 
-		void update(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, const bool r_flat) {
-			// update all buffers and 
-			update_bufs(vp, tris, mats, n_tris, n_samples, r_flat);
-
+		void execute(const view::viewport& vp) {
 			commandbuffer.begin({{}, nullptr});
 			commandbuffer.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline);
 			commandbuffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelinelayout, 0, 1, &descset, 0, nullptr);
@@ -455,10 +440,10 @@ namespace {
 			init_pipeline();
 
 			// setup all the buffers
-			raybuf = std::unique_ptr<buf_holder<vk_data::ray>>(new buf_holder<vk_data::ray>(device, memprops));
-			tribuf = std::unique_ptr<buf_holder<vk_data::triangle>>(new buf_holder<vk_data::triangle>(device, memprops));
-			matbuf = std::unique_ptr<buf_holder<vk_data::material>>(new buf_holder<vk_data::material>(device, memprops));
-			outbuf = std::unique_ptr<buf_holder<vk_data::rgba>>(new buf_holder<vk_data::rgba>(device, memprops));
+			raybuf = std::unique_ptr<buf_holder<vk_data::ray>>(new buf_holder<vk_data::ray>(device, memprops, descset, 1));
+			tribuf = std::unique_ptr<buf_holder<vk_data::triangle>>(new buf_holder<vk_data::triangle>(device, memprops, descset, 2));
+			matbuf = std::unique_ptr<buf_holder<vk_data::material>>(new buf_holder<vk_data::material>(device, memprops, descset, 3));
+			outbuf = std::unique_ptr<buf_holder<vk_data::rgba>>(new buf_holder<vk_data::rgba>(device, memprops, descset, 0));
 			// and uniforms
 			inputsbuf = std::unique_ptr<uniform_holder<vk_data::inputs>>(new uniform_holder<vk_data::inputs>(device, memprops, descset, 4));
 		}
@@ -484,8 +469,9 @@ namespace {
 		}
 
 		void render_core(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out, const bool r_flat) {
+			update_bufs(vp, tris, mats, n_tris, n_samples, r_flat);
 			const auto	s_time = std::chrono::high_resolution_clock::now();
-			update(vp, tris, mats, n_tris, n_samples, r_flat);
+			execute(vp);
 			const auto	e_time = std::chrono::high_resolution_clock::now();
 			std::printf("Done (%.1fs)\n", std::chrono::duration_cast<std::chrono::milliseconds>(e_time - s_time).count()/1000.0);
 			get_output(out);
