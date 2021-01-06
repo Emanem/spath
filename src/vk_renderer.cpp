@@ -93,6 +93,13 @@ namespace vk_data {
 	};
 
 	static_assert(sizeof(rgba) == 16, "struct rgba is not aligned to 16 bytes");
+
+	struct inputs {
+		uint32_t	n_tris,
+				n_rays;
+	};
+
+	static_assert(sizeof(inputs) == 8, "struct inputs is not aligned to 8 bytes");
 }
 
 namespace {
@@ -178,17 +185,58 @@ namespace {
 			}
 		};
 
-		// input
-		std::unique_ptr<buf_holder<vk_data::ray>>	raybuf;
-		std::unique_ptr<buf_holder<vk_data::triangle>>	tribuf;
-		std::unique_ptr<buf_holder<vk_data::material>>	matbuf;
+		template<typename T>
+		struct uniform_holder {
+			vk::Device&					dev_;
+			const vk::PhysicalDeviceMemoryProperties&	mprops_;
+			vk::Buffer					buf_;
+			vk::DeviceMemory				bufmem_;
 
-		// buffers
-		std::unique_ptr<buf_holder<vk_data::rgba>>	outbuf;
+			uint32_t find_memory_type(uint32_t mbits, const vk::MemoryPropertyFlags props) {
+				for(uint32_t i = 0; i < mprops_.memoryTypeCount; ++i) {
+					if ((mbits & (1 << i)) && ((mprops_.memoryTypes[i].propertyFlags & props) == props))
+						return i;
+				}
+				throw std::runtime_error("Can't find required memory type");
+			}
+
+			uniform_holder(vk::Device& d, const vk::PhysicalDeviceMemoryProperties& p) : dev_(d), mprops_(p) {
+				const size_t	r_size = sizeof(T);
+				buf_ = dev_.createBuffer({{}, r_size, vk::BufferUsageFlagBits::eUniformBuffer});
+				auto memReq = dev_.getBufferMemoryRequirements(buf_);
+				vk::MemoryAllocateInfo	mai;
+				mai.allocationSize = memReq.size;
+				mai.memoryTypeIndex = find_memory_type(memReq.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible);
+				bufmem_ = dev_.allocateMemory(mai);
+				dev_.bindBufferMemory(buf_, bufmem_, 0);
+			}
+
+			~uniform_holder() {
+				dev_.freeMemory(bufmem_);
+				dev_.destroyBuffer(buf_);
+			}
+
+			void write(const T& v) {
+				T* m_buf = (T*)dev_.mapMemory(bufmem_, 0, sizeof(T));
+				std::memcpy(m_buf, &v, sizeof(T));
+				dev_.unmapMemory(bufmem_);
+			}
+		};
+
+		// input
+		std::unique_ptr<buf_holder<vk_data::ray>>		raybuf;
+		std::unique_ptr<buf_holder<vk_data::triangle>>		tribuf;
+		std::unique_ptr<buf_holder<vk_data::material>>		matbuf;
+
+		// output
+		std::unique_ptr<buf_holder<vk_data::rgba>>		outbuf;
+
+		// uniform
+		std::unique_ptr<uniform_holder<vk_data::inputs>>	inputsbuf;
 
 		void init_descset(void) {
 			// first layout
-			vk::DescriptorSetLayoutBinding	dslb[4];
+			vk::DescriptorSetLayoutBinding	dslb[5];
 			dslb[0].binding = 0;
 			dslb[0].descriptorType = vk::DescriptorType::eStorageBuffer;
 			dslb[0].descriptorCount = 1;
@@ -205,14 +253,21 @@ namespace {
 			dslb[3].descriptorType = vk::DescriptorType::eStorageBuffer;
 			dslb[3].descriptorCount = 1;
 			dslb[3].stageFlags = vk::ShaderStageFlagBits::eCompute;
+			dslb[4].binding = 4;
+			dslb[4].descriptorType = vk::DescriptorType::eUniformBuffer;
+			dslb[4].descriptorCount = 1;
+			dslb[4].stageFlags = vk::ShaderStageFlagBits::eCompute;
 
 			descsetlayout = device.createDescriptorSetLayout({{}, sizeof(dslb)/sizeof(dslb[0]), dslb });
 
 			// then pool
-			vk::DescriptorPoolSize	dps;
-			dps.descriptorCount = 1;
+			vk::DescriptorPoolSize	dps[2];
+			dps[0].type = vk::DescriptorType::eStorageBuffer;
+			dps[0].descriptorCount = 4;
+			dps[1].type = vk::DescriptorType::eUniformBuffer;
+			dps[1].descriptorCount = 1;
 
-			descpool = device.createDescriptorPool({{}, 1 /*max set*/, 1, &dps});
+			descpool = device.createDescriptorPool({{}, 1 /*max set*/, sizeof(dps)/sizeof(dps[0]), &dps[0]});
 
 			// then get the desc set
 			// please note this returns a vector of vk::DescriptionSet
@@ -275,10 +330,11 @@ namespace {
 				*p = mats[i];
 			});
 			outbuf->resize(vp.res_x*vp.res_y);
+			inputsbuf->write({n_tris, vp.res_x*vp.res_y});
 			// update the desc set
 			// these could be 4 variables, don't need
 			// to be in array
-			vk::DescriptorBufferInfo	dbi[4];
+			vk::DescriptorBufferInfo	dbi[5];
 			dbi[0].buffer = outbuf->buf_;
 			dbi[0].offset = 0;
 			dbi[0].range = outbuf->sz_*sizeof(vk_data::rgba);
@@ -291,8 +347,12 @@ namespace {
 			dbi[3].buffer = matbuf->buf_;
 			dbi[3].offset = 0;
 			dbi[3].range = matbuf->sz_*sizeof(vk_data::material);
+			// the 5th element is the uniform one
+			dbi[4].buffer = inputsbuf->buf_;
+			dbi[4].offset = 0;
+			dbi[4].range = sizeof(vk_data::inputs);
 
-			vk::WriteDescriptorSet	wds[4];
+			vk::WriteDescriptorSet	wds[5];
 			for(size_t i = 0; i < 4; ++i) {
 				wds[i].dstSet = descset;
 				wds[i].dstBinding = i;
@@ -300,6 +360,12 @@ namespace {
 				wds[i].descriptorType = vk::DescriptorType::eStorageBuffer;
 				wds[i].pBufferInfo = &dbi[i];
 			}
+			// set uniform block
+			wds[4].dstSet = descset;
+			wds[4].dstBinding = 4;
+			wds[4].descriptorCount = 1;
+			wds[4].descriptorType = vk::DescriptorType::eUniformBuffer;
+			wds[4].pBufferInfo = &dbi[4];
 
 			device.updateDescriptorSets(sizeof(wds)/sizeof(wds[0]), &wds[0], 0, nullptr);
 		}
@@ -385,6 +451,8 @@ namespace {
 			tribuf = std::unique_ptr<buf_holder<vk_data::triangle>>(new buf_holder<vk_data::triangle>(device, memprops));
 			matbuf = std::unique_ptr<buf_holder<vk_data::material>>(new buf_holder<vk_data::material>(device, memprops));
 			outbuf = std::unique_ptr<buf_holder<vk_data::rgba>>(new buf_holder<vk_data::rgba>(device, memprops));
+			// and uniforms
+			inputsbuf = std::unique_ptr<uniform_holder<vk_data::inputs>>(new uniform_holder<vk_data::inputs>(device, memprops));
 		}
 
 		~vk_r() {

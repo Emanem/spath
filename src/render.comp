@@ -47,6 +47,11 @@ layout(std140, binding = 3) buffer matbuf
    material mats[];
 };
 
+layout(std140, binding = 4) uniform inbuf {
+	uint	n_tris,
+		n_rays;
+};
+
 const float	EPSILON = 0.00000000000001;
 const float	MAX_VALUE_DIST = 1000000000000.0;
 const float	PI = 3.14159265359;
@@ -111,8 +116,6 @@ void render_flat(void) {
 	outimg[g_id].b = 0;
 	outimg[g_id].a = 0;
 
-	const uint	n_tris = 7; //hardcoded now
-
 	const ray	r = rays[g_id];
 	float		d = MAX_VALUE_DIST;
 	for(int i = 0; i < n_tris; ++i) {
@@ -151,7 +154,7 @@ vec3 rand_unit_vec(vec3 vec_in, inout uint rand_seed) {
 	return outv;
 }
 
-vec3 render_step0(const ray r, const uint n_tris, inout uint rand_seed, const int idx_source, const int depth) {
+vec3 render_step0(const ray r, inout uint rand_seed, const int idx_source, const int depth) {
 	vec3	rv;
 	rv.x = 0.0;
 	rv.y = 0.0;
@@ -204,7 +207,7 @@ vec3 render_step0(const ray r, const uint n_tris, inout uint rand_seed, const in
 }
 
 
-vec3 render_step(const ray r, const uint n_tris, inout uint rand_seed, const int idx_source, const int depth) {
+vec3 render_step(const ray r, inout uint rand_seed, const int idx_source, const int depth) {
 	vec3	rv;
 	rv.x = 0.0;
 	rv.y = 0.0;
@@ -248,7 +251,7 @@ vec3 render_step(const ray r, const uint n_tris, inout uint rand_seed, const int
 	const vec3	ref_color = vec3(mats[idx].reflectance_color);
 	const vec3	BRDF = ref_color*(1.0/PI);
 	// recursive step - can't do in vulkan compute
-	const vec3	rec_color = render_step0(next_r, n_tris, rand_seed, idx, depth+1);
+	const vec3	rec_color = render_step0(next_r, rand_seed, idx, depth+1);
 	// temporary variables steps
 	const vec3	b_in = BRDF * rec_color;
 	const vec3	pt_comp = b_in * (cos_theta * (1.0/p));
@@ -259,13 +262,11 @@ vec3 render_step(const ray r, const uint n_tris, inout uint rand_seed, const int
 void render(const uint n_samples) {
 	uint g_id = get_id();
 
-	const uint	n_tris = 7; //hardcoded now
-
 	const ray	r = rays[g_id];
 	uint		seed = g_id;
 	vec3		accum = vec3(0);
 	for(int i =0; i < n_samples; ++i) {
-		accum += render_step(r, n_tris, seed, -1, 0);
+		accum += render_step(r, seed, -1, 0);
 	}
 	// take averages
 	accum = accum * (1.0/n_samples);
