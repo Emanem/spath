@@ -334,6 +334,8 @@ namespace {
 			// update the desc set
 			// these could be 4 variables, don't need
 			// to be in array
+			// we need to update here in case the resize
+			// above trigger a buffer regeneration
 			vk::DescriptorBufferInfo	dbi[5];
 			dbi[0].buffer = outbuf->buf_;
 			dbi[0].offset = 0;
@@ -481,7 +483,7 @@ namespace {
 
 		virtual void render_flat(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out) {
 			const auto	s_time = std::chrono::high_resolution_clock::now();
-			update(vp, tris, mats, n_samples, n_samples);
+			update(vp, tris, mats, n_tris, n_samples);
 			const auto	e_time = std::chrono::high_resolution_clock::now();
 			std::printf("Done (%.1fs)\n", std::chrono::duration_cast<std::chrono::milliseconds>(e_time - s_time).count()/1000.0);
 			get_output(out);
@@ -489,7 +491,7 @@ namespace {
 
 		virtual void render(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out) {
 			const auto	s_time = std::chrono::high_resolution_clock::now();
-			update(vp, tris, mats, n_samples, n_samples);
+			update(vp, tris, mats, n_tris, n_samples);
 			const auto	e_time = std::chrono::high_resolution_clock::now();
 			std::printf("Done (%.1fs)\n", std::chrono::duration_cast<std::chrono::milliseconds>(e_time - s_time).count()/1000.0);
 			get_output(out);
