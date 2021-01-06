@@ -1,7 +1,7 @@
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
 
-layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+layout (local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 
 struct rgba {
 	float	r,
@@ -110,9 +110,7 @@ uint get_id(void) {
 	return gl_GlobalInvocationID.x;
 }
 
-void render_flat(void) {
-	uint g_id = get_id();
-
+void render_flat(const uint g_id) {
 	outimg[g_id].r = 0;
 	outimg[g_id].g = 0;
 	outimg[g_id].b = 0;
@@ -261,9 +259,7 @@ vec3 render_step(const ray r, inout uint rand_seed, const int idx_source, const 
 	return pt_comp + em_comp;
 }
 
-void render(const uint n_samples) {
-	uint g_id = get_id();
-
+void render(const uint g_id, const uint n_samples) {
 	const ray	r = rays[g_id];
 	uint		seed = g_id;
 	vec3		accum = vec3(0);
@@ -276,10 +272,14 @@ void render(const uint n_samples) {
 }
 
 void main() {
+	uint g_id = get_id();
+	if(g_id >= n_rays)
+		return;
+
 	if(f_flat != 0) {
-		render_flat();
+		render_flat(g_id);
 	} else {
-		render(n_samples);
+		render(g_id, n_samples);
 	}
 }
 

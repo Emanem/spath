@@ -370,7 +370,7 @@ namespace {
 			commandbuffer.begin({{}, nullptr});
 			commandbuffer.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline);
 			commandbuffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelinelayout, 0, 1, &descset, 0, nullptr);
-			commandbuffer.dispatch(ceil(vp.res_x*vp.res_y, 1), 1, 1);
+			commandbuffer.dispatch(ceil(vp.res_x*vp.res_y/32, 1), 1, 1);
 			commandbuffer.end();
 
 			vk::SubmitInfo si(0, nullptr, nullptr, 1, &commandbuffer, 0, nullptr);
