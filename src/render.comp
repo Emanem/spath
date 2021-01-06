@@ -49,7 +49,9 @@ layout(std140, binding = 3) buffer matbuf
 
 layout(std140, binding = 4) uniform inbuf {
 	uint	n_tris,
-		n_rays;
+		n_rays,
+		n_samples,
+		f_flat;
 };
 
 const float	EPSILON = 0.00000000000001;
@@ -274,7 +276,10 @@ void render(const uint n_samples) {
 }
 
 void main() {
-	//render_flat();
-	render(128);
+	if(f_flat != 0) {
+		render_flat();
+	} else {
+		render(n_samples);
+	}
 }
 

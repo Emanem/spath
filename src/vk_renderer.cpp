@@ -96,10 +96,12 @@ namespace vk_data {
 
 	struct inputs {
 		uint32_t	n_tris,
-				n_rays;
+				n_rays,
+				n_samples,
+				f_flat;
 	};
 
-	static_assert(sizeof(inputs) == 8, "struct inputs is not aligned to 8 bytes");
+	static_assert(!(sizeof(inputs)%4), "struct inputs is not aligned to 4 bytes");
 }
 
 namespace {
@@ -188,27 +190,41 @@ namespace {
 		template<typename T>
 		struct uniform_holder {
 			vk::Device&					dev_;
-			const vk::PhysicalDeviceMemoryProperties&	mprops_;
 			vk::Buffer					buf_;
 			vk::DeviceMemory				bufmem_;
 
-			uint32_t find_memory_type(uint32_t mbits, const vk::MemoryPropertyFlags props) {
-				for(uint32_t i = 0; i < mprops_.memoryTypeCount; ++i) {
-					if ((mbits & (1 << i)) && ((mprops_.memoryTypes[i].propertyFlags & props) == props))
+			uint32_t find_memory_type(const vk::PhysicalDeviceMemoryProperties& p, uint32_t mbits, const vk::MemoryPropertyFlags props) {
+				for(uint32_t i = 0; i < p.memoryTypeCount; ++i) {
+					if ((mbits & (1 << i)) && ((p.memoryTypes[i].propertyFlags & props) == props))
 						return i;
 				}
 				throw std::runtime_error("Can't find required memory type");
 			}
 
-			uniform_holder(vk::Device& d, const vk::PhysicalDeviceMemoryProperties& p) : dev_(d), mprops_(p) {
+			uniform_holder(vk::Device& d, const vk::PhysicalDeviceMemoryProperties& p, const vk::DescriptorSet& ds, const uint32_t binding) : dev_(d) {
 				const size_t	r_size = sizeof(T);
 				buf_ = dev_.createBuffer({{}, r_size, vk::BufferUsageFlagBits::eUniformBuffer});
 				auto memReq = dev_.getBufferMemoryRequirements(buf_);
 				vk::MemoryAllocateInfo	mai;
 				mai.allocationSize = memReq.size;
-				mai.memoryTypeIndex = find_memory_type(memReq.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible);
+				mai.memoryTypeIndex = find_memory_type(p, memReq.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible);
 				bufmem_ = dev_.allocateMemory(mai);
 				dev_.bindBufferMemory(buf_, bufmem_, 0);
+
+				// update the desc set
+				vk::DescriptorBufferInfo	dbi;
+				dbi.buffer = buf_;
+				dbi.offset = 0;
+				dbi.range = sizeof(T);
+
+				vk::WriteDescriptorSet	wds;
+				wds.dstSet = ds;
+				wds.dstBinding = binding;
+				wds.descriptorCount = 1;
+				wds.descriptorType = vk::DescriptorType::eUniformBuffer;
+				wds.pBufferInfo = &dbi;
+
+				dev_.updateDescriptorSets(1, &wds, 0, nullptr);
 			}
 
 			~uniform_holder() {
@@ -316,7 +332,7 @@ namespace {
 				throw std::runtime_error("Can't create computet pipeline!");
 		}
 
-		void update_bufs(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples) {
+		void update_bufs(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, const bool r_flat) {
 			raybuf->resize(vp.res_x*vp.res_y);
 			raybuf->write([&vp](const size_t i, vk_data::ray* p){
 				*p = vp.rays[i];
@@ -330,7 +346,7 @@ namespace {
 				*p = mats[i];
 			});
 			outbuf->resize(vp.res_x*vp.res_y);
-			inputsbuf->write({n_tris, vp.res_x*vp.res_y});
+			inputsbuf->write({n_tris, vp.res_x*vp.res_y, n_samples, r_flat ? 1 : 0});
 			// update the desc set
 			// these could be 4 variables, don't need
 			// to be in array
@@ -349,12 +365,8 @@ namespace {
 			dbi[3].buffer = matbuf->buf_;
 			dbi[3].offset = 0;
 			dbi[3].range = matbuf->sz_*sizeof(vk_data::material);
-			// the 5th element is the uniform one
-			dbi[4].buffer = inputsbuf->buf_;
-			dbi[4].offset = 0;
-			dbi[4].range = sizeof(vk_data::inputs);
 
-			vk::WriteDescriptorSet	wds[5];
+			vk::WriteDescriptorSet	wds[4];
 			for(size_t i = 0; i < 4; ++i) {
 				wds[i].dstSet = descset;
 				wds[i].dstBinding = i;
@@ -362,19 +374,13 @@ namespace {
 				wds[i].descriptorType = vk::DescriptorType::eStorageBuffer;
 				wds[i].pBufferInfo = &dbi[i];
 			}
-			// set uniform block
-			wds[4].dstSet = descset;
-			wds[4].dstBinding = 4;
-			wds[4].descriptorCount = 1;
-			wds[4].descriptorType = vk::DescriptorType::eUniformBuffer;
-			wds[4].pBufferInfo = &dbi[4];
 
 			device.updateDescriptorSets(sizeof(wds)/sizeof(wds[0]), &wds[0], 0, nullptr);
 		}
 
-		void update(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples) {
+		void update(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, const bool r_flat) {
 			// update all buffers and 
-			update_bufs(vp, tris, mats, n_tris, n_samples);
+			update_bufs(vp, tris, mats, n_tris, n_samples, r_flat);
 
 			commandbuffer.begin({{}, nullptr});
 			commandbuffer.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline);
@@ -454,7 +460,7 @@ namespace {
 			matbuf = std::unique_ptr<buf_holder<vk_data::material>>(new buf_holder<vk_data::material>(device, memprops));
 			outbuf = std::unique_ptr<buf_holder<vk_data::rgba>>(new buf_holder<vk_data::rgba>(device, memprops));
 			// and uniforms
-			inputsbuf = std::unique_ptr<uniform_holder<vk_data::inputs>>(new uniform_holder<vk_data::inputs>(device, memprops));
+			inputsbuf = std::unique_ptr<uniform_holder<vk_data::inputs>>(new uniform_holder<vk_data::inputs>(device, memprops, descset, 4));
 		}
 
 		~vk_r() {
@@ -477,24 +483,24 @@ namespace {
 			});
 		}
 
+		void render_core(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out, const bool r_flat) {
+			const auto	s_time = std::chrono::high_resolution_clock::now();
+			update(vp, tris, mats, n_tris, n_samples, r_flat);
+			const auto	e_time = std::chrono::high_resolution_clock::now();
+			std::printf("Done (%.1fs)\n", std::chrono::duration_cast<std::chrono::milliseconds>(e_time - s_time).count()/1000.0);
+			get_output(out);
+		}
+
 		virtual const char* get_description(void) const {
 			return desc.c_str();
 		}
 
 		virtual void render_flat(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out) {
-			const auto	s_time = std::chrono::high_resolution_clock::now();
-			update(vp, tris, mats, n_tris, n_samples);
-			const auto	e_time = std::chrono::high_resolution_clock::now();
-			std::printf("Done (%.1fs)\n", std::chrono::duration_cast<std::chrono::milliseconds>(e_time - s_time).count()/1000.0);
-			get_output(out);
+			render_core(vp, tris, mats, n_tris, n_samples, out, true);
 		}
 
 		virtual void render(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out) {
-			const auto	s_time = std::chrono::high_resolution_clock::now();
-			update(vp, tris, mats, n_tris, n_samples);
-			const auto	e_time = std::chrono::high_resolution_clock::now();
-			std::printf("Done (%.1fs)\n", std::chrono::duration_cast<std::chrono::milliseconds>(e_time - s_time).count()/1000.0);
-			get_output(out);
+			render_core(vp, tris, mats, n_tris, n_samples, out, false);
 		}
 
 	};
