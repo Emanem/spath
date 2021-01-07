@@ -101,22 +101,34 @@ uint get_id(void) {
 	return gl_GlobalInvocationID.x;
 }
 
-void render_flat(const uint g_id) {
-	outimg[g_id].r = 0;
-	outimg[g_id].g = 0;
-	outimg[g_id].b = 0;
-	outimg[g_id].a = 0;
-
-	const ray	r = rays[g_id];
-	float		d = MAX_VALUE_DIST;
+int tri_intersect(const ray r, const int idx_source, out vec3 point) {
+	// try to hit something
+	float	d = MAX_VALUE_DIST;
+	int	idx = -1;
 	for(int i = 0; i < n_tris; ++i) {
-		vec3		unused;
-		triangle	cur_tri = tris[i];
-		const float	cur_d = ray_intersect(r, cur_tri, unused);
+		if(i == idx_source)
+			continue;
+		vec3			l_point;
+		triangle		cur_tri = tris[i];
+		const float		cur_d = ray_intersect(r, cur_tri, l_point);
 		if((cur_d > 0.0) && (cur_d < d)) {
 			d = cur_d;
-			outimg[g_id] = vec4_RGBA(mats[i].reflectance_color);
+			idx = i;
+			point = l_point;
 		}
+	}
+	return idx;
+}
+
+
+void render_flat(const uint g_id) {
+	const ray	r = rays[g_id];
+	vec3		unused;
+	const int	idx = tri_intersect(r, -1, unused);
+	if(-1 == idx) {
+		outimg[g_id] = vec4_RGBA(vec4(0.0));
+	} else {
+		outimg[g_id] = vec4_RGBA(mats[idx].reflectance_color);
 	}
 }
 
@@ -143,25 +155,6 @@ vec3 rand_unit_vec(vec3 vec_in, inout uint rand_seed) {
 		outv *= -1.0;
 	}
 	return outv;
-}
-
-int tri_intersect(const ray r, const int idx_source, out vec3 point) {
-	// try to hit something
-	float	d = MAX_VALUE_DIST;
-	int	idx = -1;
-	for(int i = 0; i < n_tris; ++i) {
-		if(i == idx_source)
-			continue;
-		vec3			l_point;
-		triangle		cur_tri = tris[i];
-		const float		cur_d = ray_intersect(r, cur_tri, l_point);
-		if((cur_d > 0.0) && (cur_d < d)) {
-			d = cur_d;
-			idx = i;
-			point = l_point;
-		}
-	}
-	return idx;
 }
 
 vec3 render_step_iter(const ray r, inout uint rand_seed) {
