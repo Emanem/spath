@@ -58,39 +58,30 @@ const float	EPSILON = 0.00000000000001;
 const float	MAX_VALUE_DIST = 1000000000000.0;
 const float	PI = 3.14159265359;
 
-struct ray_intersect_res {
-	float 	d;
-	vec3	point;
-};
-
-ray_intersect_res ray_intersect(const ray r, const triangle t) {
-	ray_intersect_res	rv;
-	rv.d = -1.0;
-	rv.point = vec3(0.0);
-	const vec3	edge1 = vec3(t.v1 - t.v0), //v_diff(&t->v1, &t->v0),
-			edge2 = vec3(t.v2 - t.v0), //v_diff(&t->v2, &t->v0),
+float ray_intersect(const ray r, const triangle t, out vec3 point) {
+	const vec3	edge1 = vec3(t.v1 - t.v0), 
+			edge2 = vec3(t.v2 - t.v0),
 			h = cross(vec3(r.dir), edge2);
 	const float	a = dot(edge1, h);
 	if(a > -EPSILON && a < EPSILON)
-		return rv;
+		return -1.0;
 	const float	f = 1.0/a;
 	const vec3	s = vec3(r.pos - t.v0);
 	const float	u = f * dot(s, h);
 	if(u < 0.0 || u > 1.0)
-		return rv;
+		return -1.0;
 	const vec3	q = cross(s, edge1);
 	const float	v = f * dot(vec3(r.dir), q);
 	if(v < 0.0 || (u+v)> 1.0)
-		return rv;
+		return -1.0;
 	// compute intersection
 	const float	d = f * dot(edge2, q);
 	if(d > EPSILON && d < 1.0/EPSILON) {
 		const vec3 vd = vec3(r.dir)*d;
-		rv.d = d;
-		rv.point = vec3(r.pos) + vd;
-		return rv;
+		point = vec3(r.pos) + vd;
+		return d;
 	}
-	return rv;
+	return -1.0;
 }
 
 float clampcnv(const float v) {
@@ -121,7 +112,7 @@ void render_flat(const uint g_id) {
 	for(int i = 0; i < n_tris; ++i) {
 		vec3		unused;
 		triangle	cur_tri = tris[i];
-		const float	cur_d = ray_intersect(r, cur_tri).d;
+		const float	cur_d = ray_intersect(r, cur_tri, unused);
 		if((cur_d > 0.0) && (cur_d < d)) {
 			d = cur_d;
 			outimg[g_id] = vec4_RGBA(mats[i].reflectance_color);
@@ -172,12 +163,12 @@ vec3 render_step0(const ray r, inout uint rand_seed, const int idx_source, const
 	for(int i = 0; i < n_tris; ++i) {
 		if(i == idx_source)
 			continue;
+		vec3			point;
 		triangle		cur_tri = tris[i];
-		ray_intersect_res	rr = ray_intersect(r, cur_tri);
-		const float		cur_d = rr.d;
+		const float		cur_d = ray_intersect(r, cur_tri, point);
 		if((cur_d > 0.0) && (cur_d < d)) {
 			d = cur_d;
-			next_r.pos = vec4(rr.point, 0.0);
+			next_r.pos = vec4(point, 0.0);
 			idx = i;
 		}
 	}
@@ -225,12 +216,12 @@ vec3 render_step(const ray r, inout uint rand_seed, const int idx_source, const 
 	for(int i = 0; i < n_tris; ++i) {
 		if(i == idx_source)
 			continue;
+		vec3			point;
 		triangle		cur_tri = tris[i];
-		ray_intersect_res	rr = ray_intersect(r, cur_tri);
-		const float		cur_d = rr.d;
+		const float		cur_d = ray_intersect(r, cur_tri, point);
 		if((cur_d > 0.0) && (cur_d < d)) {
 			d = cur_d;
-			next_r.pos = vec4(rr.point, 0.0);
+			next_r.pos = vec4(point, 0.0);
 			idx = i;
 		}
 	}
