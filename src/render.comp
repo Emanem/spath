@@ -1,0 +1,240 @@
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+layout (local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+struct rgba {
+	float	r,
+		g,
+		b,
+		a;
+};
+
+struct ray {
+	vec4	pos,
+		dir;
+};
+
+struct triangle {
+	vec4	v0,
+		v1,
+		v2,
+		n;
+};
+
+struct material {
+	vec4	reflectance_color,
+		emittance_color;
+};
+
+layout(std140, binding = 0) buffer outbuf
+{
+   rgba outimg[];
+};
+
+layout(std140, binding = 1) buffer raybuf
+{
+   ray rays[];
+};
+
+layout(std140, binding = 2) buffer tribuf
+{
+   triangle tris[];
+};
+
+layout(std140, binding = 3) buffer matbuf
+{
+   material mats[];
+};
+
+layout(std140, binding = 4) uniform inbuf {
+	uint	n_tris,
+		n_rays,
+		n_samples,
+		f_flat;
+};
+
+const float	EPSILON = 0.00000000000001;
+const float	MAX_VALUE_DIST = 1000000000000.0;
+const float	PI = 3.14159265359;
+
+float ray_intersect(const ray r, const triangle t, out vec3 point) {
+	const vec3	edge1 = vec3(t.v1 - t.v0), 
+			edge2 = vec3(t.v2 - t.v0),
+			h = cross(vec3(r.dir), edge2);
+	const float	a = dot(edge1, h);
+	if(a > -EPSILON && a < EPSILON)
+		return -1.0;
+	const float	f = 1.0/a;
+	const vec3	s = vec3(r.pos - t.v0);
+	const float	u = f * dot(s, h);
+	if(u < 0.0 || u > 1.0)
+		return -1.0;
+	const vec3	q = cross(s, edge1);
+	const float	v = f * dot(vec3(r.dir), q);
+	if(v < 0.0 || (u+v)> 1.0)
+		return -1.0;
+	// compute intersection
+	const float	d = f * dot(edge2, q);
+	if(d > EPSILON && d < 1.0/EPSILON) {
+		const vec3 vd = vec3(r.dir)*d;
+		point = vec3(r.pos) + vd;
+		return d;
+	}
+	return -1.0;
+}
+
+float clampcnv(const float v) {
+	return (v < 0.0) ? 0.0 : ((v > 1.0) ? 1.0 : v);
+}
+
+rgba vec4_RGBA(const vec4 color) {
+	rgba	rv;
+	rv.r = clampcnv(color.x);
+	rv.g = clampcnv(color.y);
+	rv.b = clampcnv(color.z);
+	rv.a = 0;
+	return rv;
+}
+
+uint get_id(void) {
+	return gl_GlobalInvocationID.x;
+}
+
+int tri_intersect(const ray r, const int idx_source, out vec3 point) {
+	// try to hit something
+	float	d = MAX_VALUE_DIST;
+	int	idx = -1;
+	for(int i = 0; i < n_tris; ++i) {
+		if(i == idx_source)
+			continue;
+		vec3			l_point;
+		triangle		cur_tri = tris[i];
+		const float		cur_d = ray_intersect(r, cur_tri, l_point);
+		if((cur_d > 0.0) && (cur_d < d)) {
+			d = cur_d;
+			idx = i;
+			point = l_point;
+		}
+	}
+	return idx;
+}
+
+
+void render_flat(const uint g_id) {
+	const ray	r = rays[g_id];
+	vec3		unused;
+	const int	idx = tri_intersect(r, -1, unused);
+	if(-1 == idx) {
+		outimg[g_id] = vec4_RGBA(vec4(0.0));
+	} else {
+		outimg[g_id] = vec4_RGBA(mats[idx].reflectance_color);
+	}
+}
+
+float get_rand(inout uint seed) {
+	seed = (214013*(seed)+2531011);
+	return 1.0*(((seed)>>16)&0x7FFF)/32767.0;
+}
+
+vec3 rand_unit_vec(vec3 vec_in, inout uint rand_seed) {
+	// first get two random points
+	const float	rv1 = get_rand(rand_seed),
+	      		rv2 = get_rand(rand_seed);
+	// then transform to spherical coords
+	const float	rv_xz = 1.0*rv1*PI*2.0,
+			rv_y = 1.0*rv2*PI*0.5,
+			f_x = cos(rv_y),
+			f_y = sin(rv_y);
+	// directions
+	vec3		outv;
+	outv.x = cos(rv_xz)*f_x;
+	outv.y = f_y;
+	outv.z = sin(rv_xz)*f_x;
+	if(dot(vec_in, outv) < 0.0) {
+		outv *= -1.0;
+	}
+	return outv;
+}
+
+vec3 render_step_iter(const ray r, inout uint rand_seed) {
+	vec3	rv;
+	rv.x = 0.0;
+	rv.y = 0.0;
+	rv.z = 0.0;
+	
+	const uint	max_iter = 5;
+	int		iter;
+	ray		cur_r = r;
+	int		cur_idx_source = -1;
+	//		variables to store the steps
+	float		cos_theta[max_iter];
+	int		idxs[max_iter];
+	for(iter = 0; iter < max_iter; ++iter) {
+		vec3	point;
+		int	idx = tri_intersect(cur_r, cur_idx_source, point);
+		if(idx < 0) {
+			idxs[iter] = -1;
+			break;
+		}
+		// get the next direction
+		// make sure the normal is against the ray..
+		ray	next_r;
+		vec3	adj_n = vec3(tris[idx].n);
+		if(dot(adj_n, vec3(cur_r.dir)) > 0.0) {
+			adj_n *= -1.0;
+		}
+		next_r.dir = vec4(rand_unit_vec(adj_n, rand_seed), 0.0);
+		next_r.pos = vec4(point, 0.0);
+
+		// now let's save the 'loop dependant variables'
+		cos_theta[iter] = dot(vec3(next_r.dir), adj_n);
+		idxs[iter] = idx;
+
+		// set the variables for next iteration
+		cur_r = next_r;
+		cur_idx_source = idx;
+	}
+
+	// now loop in the opposite direction and accumulate the colours
+	for(int i = iter; i >= 0; --i) {
+		const int	cur_idx = idxs[i];
+		if(-1 == cur_idx)
+			continue;
+		const vec3	ref_color = vec3(mats[cur_idx].reflectance_color);
+		const vec3	BRDF = ref_color*(1.0/PI);
+		// probability of new ray
+		const float	p = 1.0/(PI*2.0);
+		const vec3	b_in = BRDF * rv;
+		const vec3	pt_comp = b_in * (cos_theta[i] * (1.0/p));
+		const vec3	em_comp = vec3(mats[cur_idx].emittance_color);
+		rv = pt_comp + em_comp;
+	}
+	
+	return rv;
+}
+
+void render(const uint g_id, const uint n_samples) {
+	const ray	r = rays[g_id];
+	uint		seed = g_id;
+	vec3		accum = vec3(0);
+	for(int i =0; i < n_samples; ++i) {
+		accum += render_step_iter(r, seed);
+	}
+	// take averages
+	accum = accum * (1.0/n_samples);
+	outimg[g_id] = vec4_RGBA(vec4(accum, 1.0));
+}
+
+void main() {
+	uint g_id = get_id();
+	if(g_id >= n_rays)
+		return;
+
+	if(f_flat != 0) {
+		render_flat(g_id);
+	} else {
+		render(g_id, n_samples);
+	}
+}
+
