@@ -401,7 +401,7 @@ namespace {
 			auto& physDev = physicalDevices[0];
 
 			// set desc
-			desc = std::string("Vulkan compute renderer on [") + physDev.getProperties().deviceName + ']';
+			desc = std::string("Vulkan compute renderer on [") + &physDev.getProperties().deviceName[0] + ']';
 
 			// get the queue families props
 			auto qfProps = physDev.getQueueFamilyProperties();
