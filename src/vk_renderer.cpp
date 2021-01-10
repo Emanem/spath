@@ -241,7 +241,7 @@ namespace {
 		}
 	};
 
-	struct vk_r : public basic_renderer {
+	struct vk_base : public basic_renderer {
 		std::string				desc;
 		vk::Instance 				instance;
 		vk::PhysicalDeviceMemoryProperties	memprops;
@@ -267,6 +267,121 @@ namespace {
 		// uniform
 		std::unique_ptr<uniform_holder<vk_data::inputs>>	inputsbuf;
 
+		virtual void update_bufs(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, const bool r_flat) = 0;
+
+		void execute(const view::viewport& vp) {
+			commandbuffer.begin({{}, nullptr});
+			commandbuffer.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline);
+			commandbuffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelinelayout, 0, 1, &descset, 0, nullptr);
+			commandbuffer.dispatch(ceil(vp.res_x*vp.res_y/32, 1), 1, 1);
+			commandbuffer.end();
+
+			vk::SubmitInfo si(0, nullptr, nullptr, 1, &commandbuffer, 0, nullptr);
+
+			queue.submit(1, &si, vk::Fence());
+
+			queue.waitIdle();
+
+			commandbuffer.reset({});
+		}
+
+	// interface here
+	// if this was a class, the following would be public
+	// methods
+		vk_base(const std::string& engine_nm, const int x, const int y) : basic_renderer(x, y) {
+			// Vulkan instance
+			vk::ApplicationInfo appInfo;
+			appInfo.pApplicationName = "spath";
+			appInfo.pEngineName = engine_nm.c_str();
+			appInfo.apiVersion = VK_API_VERSION_1_0;
+
+			vk::InstanceCreateInfo instanceCreateInfo;
+			instanceCreateInfo.pApplicationInfo = &appInfo;
+			instance = vk::createInstance(instanceCreateInfo);
+
+			// always use the first physical device
+			auto physicalDevices = instance.enumeratePhysicalDevices();
+			auto& physDev = physicalDevices[0];
+
+			// set desc
+			desc = std::string("Vulkan compute renderer on [") + &physDev.getProperties().deviceName[0] + ']';
+
+			// get the queue families props
+			auto qfProps = physDev.getQueueFamilyProperties();
+			// find the first with compute capabilities
+			int qIdx = -1;
+			for(const auto& qf : qfProps) {
+				if((qf.queueFlags & vk::QueueFlagBits::eCompute) == vk::QueueFlagBits::eCompute) {
+					qIdx = &qf - &qfProps[0];
+					break;
+				}
+			}
+			if(-1 == qIdx)
+				throw std::runtime_error("Can't find compute Vulkan queue");
+
+			// get memory props
+			memprops = physDev.getMemoryProperties();
+
+			// create logical device, binding 1 queue
+			// of the logical family found above
+			vk::DeviceQueueCreateInfo 	dqci({}, qIdx, 1, nullptr);
+			vk::DeviceCreateInfo		dci({}, 1, &dqci); 	
+			device = physDev.createDevice(dci);
+
+			// after we got the logical device
+			// get the queue!
+			queue = device.getQueue(qIdx, 0);
+
+			// then setup the command pool for this queue family
+			commandpool = device.createCommandPool({{}, qIdx});
+
+			// this gives a vector of command buffers
+			commandbuffer = device.allocateCommandBuffers({commandpool, vk::CommandBufferLevel::ePrimary, 1})[0];
+		}
+
+		~vk_base() {
+			device.destroyShaderModule(computeshader);
+			device.destroyDescriptorPool(descpool);
+			device.destroyDescriptorSetLayout(descsetlayout);
+			device.freeCommandBuffers(commandpool, commandbuffer);
+			device.destroyCommandPool(commandpool);
+			device.destroy();
+			instance.destroy();
+		}
+
+		void get_output(scene::bitmap& out) {
+			out.values.resize(outbuf->sz_);
+			outbuf->read([&out](const size_t i, const vk_data::rgba& v) {
+				out.values[i].r = 255.0*v.r;
+				out.values[i].g = 255.0*v.g;
+				out.values[i].b = 255.0*v.b;
+				out.values[i].a = 255;
+			});
+		}
+
+		void render_core(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out, const bool r_flat) {
+			update_bufs(vp, tris, mats, n_tris, n_samples, r_flat);
+			const auto	s_time = std::chrono::high_resolution_clock::now();
+			execute(vp);
+			const auto	e_time = std::chrono::high_resolution_clock::now();
+			std::printf("Done (%.1fs)\n", std::chrono::duration_cast<std::chrono::milliseconds>(e_time - s_time).count()/1000.0);
+			get_output(out);
+		}
+
+		virtual const char* get_description(void) const {
+			return desc.c_str();
+		}
+
+		virtual void render_flat(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out) {
+			render_core(vp, tris, mats, n_tris, n_samples, out, true);
+		}
+
+		virtual void render(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out) {
+			render_core(vp, tris, mats, n_tris, n_samples, out, false);
+		}
+	};
+
+	struct vk_r : public vk_base {
 		void init_descset(void) {
 			// first layout
 			vk::DescriptorSetLayoutBinding	dslb[5];
@@ -349,7 +464,17 @@ namespace {
 				throw std::runtime_error("Can't create computet pipeline!");
 		}
 
-		void update_bufs(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, const bool r_flat) {
+		void init_buffers(void) {
+			// setup all the buffers
+			raybuf = std::unique_ptr<buf_holder<vk_data::ray>>(new buf_holder<vk_data::ray>(device, memprops, descset, 1));
+			tribuf = std::unique_ptr<buf_holder<vk_data::triangle>>(new buf_holder<vk_data::triangle>(device, memprops, descset, 2));
+			matbuf = std::unique_ptr<buf_holder<vk_data::material>>(new buf_holder<vk_data::material>(device, memprops, descset, 3));
+			outbuf = std::unique_ptr<buf_holder<vk_data::rgba>>(new buf_holder<vk_data::rgba>(device, memprops, descset, 0));
+			// and uniforms
+			inputsbuf = std::unique_ptr<uniform_holder<vk_data::inputs>>(new uniform_holder<vk_data::inputs>(device, memprops, descset, 4));
+		}
+
+		virtual void update_bufs(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, const bool r_flat) {
 			raybuf->resize(vp.res_x*vp.res_y);
 			raybuf->write([&vp](const size_t i, vk_data::ray* p){
 				*p = vp.rays[i];
@@ -366,129 +491,12 @@ namespace {
 			inputsbuf->write({n_tris, vp.res_x*vp.res_y, n_samples, r_flat ? 1 : 0});
 		}
 
-		void execute(const view::viewport& vp) {
-			commandbuffer.begin({{}, nullptr});
-			commandbuffer.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline);
-			commandbuffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelinelayout, 0, 1, &descset, 0, nullptr);
-			commandbuffer.dispatch(ceil(vp.res_x*vp.res_y/32, 1), 1, 1);
-			commandbuffer.end();
-
-			vk::SubmitInfo si(0, nullptr, nullptr, 1, &commandbuffer, 0, nullptr);
-
-			queue.submit(1, &si, vk::Fence());
-
-			queue.waitIdle();
-
-			commandbuffer.reset({});
-		}
-
-	// interface here
-	// if this was a class, the following would be public
-	// methods
-		vk_r(const int x, const int y) : basic_renderer(x, y) {
-			// Vulkan instance
-			vk::ApplicationInfo appInfo;
-			appInfo.pApplicationName = "spath";
-			appInfo.pEngineName = "spath_vk";
-			appInfo.apiVersion = VK_API_VERSION_1_0;
-
-			vk::InstanceCreateInfo instanceCreateInfo;
-			instanceCreateInfo.pApplicationInfo = &appInfo;
-			instance = vk::createInstance(instanceCreateInfo);
-
-			// always use the first physical device
-			auto physicalDevices = instance.enumeratePhysicalDevices();
-			auto& physDev = physicalDevices[0];
-
-			// set desc
-			desc = std::string("Vulkan compute renderer on [") + &physDev.getProperties().deviceName[0] + ']';
-
-			// get the queue families props
-			auto qfProps = physDev.getQueueFamilyProperties();
-			// find the first with compute capabilities
-			int qIdx = -1;
-			for(const auto& qf : qfProps) {
-				if((qf.queueFlags & vk::QueueFlagBits::eCompute) == vk::QueueFlagBits::eCompute) {
-					qIdx = &qf - &qfProps[0];
-					break;
-				}
-			}
-			if(-1 == qIdx)
-				throw std::runtime_error("Can't find compute Vulkan queue");
-
-			// get memory props
-			memprops = physDev.getMemoryProperties();
-
-			// create logical device, binding 1 queue
-			// of the logical family found above
-			vk::DeviceQueueCreateInfo 	dqci({}, qIdx, 1, nullptr);
-			vk::DeviceCreateInfo		dci({}, 1, &dqci); 	
-			device = physDev.createDevice(dci);
-
-			// after we got the logical device
-			// get the queue!
-			queue = device.getQueue(qIdx, 0);
-
-			// then setup the command pool for this queue family
-			commandpool = device.createCommandPool({{}, qIdx});
-
-			// this gives a vector of command buffers
-			commandbuffer = device.allocateCommandBuffers({commandpool, vk::CommandBufferLevel::ePrimary, 1})[0];
-
+		vk_r(const int x, const int y) : vk_base("vk_r", x, y) {
 			// initialize once
 			init_descset();
 			init_pipeline();
-
-			// setup all the buffers
-			raybuf = std::unique_ptr<buf_holder<vk_data::ray>>(new buf_holder<vk_data::ray>(device, memprops, descset, 1));
-			tribuf = std::unique_ptr<buf_holder<vk_data::triangle>>(new buf_holder<vk_data::triangle>(device, memprops, descset, 2));
-			matbuf = std::unique_ptr<buf_holder<vk_data::material>>(new buf_holder<vk_data::material>(device, memprops, descset, 3));
-			outbuf = std::unique_ptr<buf_holder<vk_data::rgba>>(new buf_holder<vk_data::rgba>(device, memprops, descset, 0));
-			// and uniforms
-			inputsbuf = std::unique_ptr<uniform_holder<vk_data::inputs>>(new uniform_holder<vk_data::inputs>(device, memprops, descset, 4));
+			init_buffers();
 		}
-
-		~vk_r() {
-			device.destroyShaderModule(computeshader);
-			device.destroyDescriptorPool(descpool);
-			device.destroyDescriptorSetLayout(descsetlayout);
-			device.freeCommandBuffers(commandpool, commandbuffer);
-			device.destroyCommandPool(commandpool);
-			device.destroy();
-			instance.destroy();
-		}
-
-		void get_output(scene::bitmap& out) {
-			out.values.resize(outbuf->sz_);
-			outbuf->read([&out](const size_t i, const vk_data::rgba& v) {
-				out.values[i].r = 255.0*v.r;
-				out.values[i].g = 255.0*v.g;
-				out.values[i].b = 255.0*v.b;
-				out.values[i].a = 255;
-			});
-		}
-
-		void render_core(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out, const bool r_flat) {
-			update_bufs(vp, tris, mats, n_tris, n_samples, r_flat);
-			const auto	s_time = std::chrono::high_resolution_clock::now();
-			execute(vp);
-			const auto	e_time = std::chrono::high_resolution_clock::now();
-			std::printf("Done (%.1fs)\n", std::chrono::duration_cast<std::chrono::milliseconds>(e_time - s_time).count()/1000.0);
-			get_output(out);
-		}
-
-		virtual const char* get_description(void) const {
-			return desc.c_str();
-		}
-
-		virtual void render_flat(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out) {
-			render_core(vp, tris, mats, n_tris, n_samples, out, true);
-		}
-
-		virtual void render(const view::viewport& vp, const geom::triangle* tris, const scene::material* mats, const size_t n_tris, const size_t n_samples, scene::bitmap& out) {
-			render_core(vp, tris, mats, n_tris, n_samples, out, false);
-		}
-
 	};
 }
 
