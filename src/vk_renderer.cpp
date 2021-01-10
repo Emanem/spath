@@ -109,6 +109,138 @@ namespace {
 		return (a > b) ? a : b;
 	}
 
+	template<typename T>
+	struct buf_holder {
+		vk::Device&					dev_;
+		const vk::PhysicalDeviceMemoryProperties&	mprops_;
+		vk::DescriptorSet&				ds_;
+		const uint32_t					binding_;
+		size_t						sz_;
+		vk::Buffer					buf_;
+		vk::DeviceMemory				bufmem_;
+
+		uint32_t find_memory_type(uint32_t mbits, const vk::MemoryPropertyFlags props) {
+			for(uint32_t i = 0; i < mprops_.memoryTypeCount; ++i) {
+				if ((mbits & (1 << i)) && ((mprops_.memoryTypes[i].propertyFlags & props) == props))
+					return i;
+			}
+			throw std::runtime_error("Can't find required memory type");
+		}
+
+		void cleanup(void) {
+			dev_.freeMemory(bufmem_);
+			dev_.destroyBuffer(buf_);
+		}
+
+		void resize(const size_t sz) {
+			if(sz > sz_) {
+				if(sz_)
+					cleanup();
+				const size_t	r_size = sizeof(T)*sz;
+				buf_ = dev_.createBuffer({{}, r_size, vk::BufferUsageFlagBits::eStorageBuffer});
+				auto memReq = dev_.getBufferMemoryRequirements(buf_);
+				vk::MemoryAllocateInfo	mai;
+				mai.allocationSize = memReq.size;
+				mai.memoryTypeIndex = find_memory_type(memReq.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible);
+				bufmem_ = dev_.allocateMemory(mai);
+				dev_.bindBufferMemory(buf_, bufmem_, 0);
+
+				// update the desc set
+				vk::DescriptorBufferInfo	dbi;
+				dbi.buffer = buf_;
+				dbi.offset = 0;
+				dbi.range = sz*sizeof(T);
+
+				vk::WriteDescriptorSet	wds;
+				wds.dstSet = ds_;
+				wds.dstBinding = binding_;
+				wds.descriptorCount = 1;
+				wds.descriptorType = vk::DescriptorType::eStorageBuffer;
+				wds.pBufferInfo = &dbi;
+
+				dev_.updateDescriptorSets(1, &wds, 0, nullptr);
+			}
+			sz_ = sz;
+		}
+
+		buf_holder(vk::Device& d, const vk::PhysicalDeviceMemoryProperties& p, vk::DescriptorSet& ds, const uint32_t binding) : dev_(d), mprops_(p), ds_(ds), binding_(binding), sz_(0) {
+		}
+
+		~buf_holder() {
+			cleanup();
+		}
+
+		template<typename Fn>
+		void read(Fn&& f) {
+			const T* m_buf = (const T*)dev_.mapMemory(bufmem_, 0, sz_*sizeof(T));
+			for(size_t i = 0; i < sz_; ++i) {
+				f(i, m_buf[i]);
+			}
+			dev_.unmapMemory(bufmem_);
+		}
+
+		template<typename Fn>
+		void write(Fn&& f) {
+			T* m_buf = (T*)dev_.mapMemory(bufmem_, 0, sz_*sizeof(T));
+			for(size_t i = 0; i < sz_; ++i) {
+				f(i, &m_buf[i]);
+			}
+			dev_.unmapMemory(bufmem_);
+		}
+	};
+
+	template<typename T>
+	struct uniform_holder {
+		vk::Device&					dev_;
+		vk::Buffer					buf_;
+		vk::DeviceMemory				bufmem_;
+
+		uint32_t find_memory_type(const vk::PhysicalDeviceMemoryProperties& p, uint32_t mbits, const vk::MemoryPropertyFlags props) {
+			for(uint32_t i = 0; i < p.memoryTypeCount; ++i) {
+				if ((mbits & (1 << i)) && ((p.memoryTypes[i].propertyFlags & props) == props))
+					return i;
+			}
+			throw std::runtime_error("Can't find required memory type");
+		}
+
+		uniform_holder(vk::Device& d, const vk::PhysicalDeviceMemoryProperties& p, vk::DescriptorSet& ds, const uint32_t binding) : dev_(d) {
+			const size_t	r_size = sizeof(T);
+			buf_ = dev_.createBuffer({{}, r_size, vk::BufferUsageFlagBits::eUniformBuffer});
+			auto memReq = dev_.getBufferMemoryRequirements(buf_);
+			vk::MemoryAllocateInfo	mai;
+			mai.allocationSize = memReq.size;
+			mai.memoryTypeIndex = find_memory_type(p, memReq.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible);
+			bufmem_ = dev_.allocateMemory(mai);
+			dev_.bindBufferMemory(buf_, bufmem_, 0);
+
+			// update the desc set
+			vk::DescriptorBufferInfo	dbi;
+			dbi.buffer = buf_;
+			dbi.offset = 0;
+			dbi.range = sizeof(T);
+
+			vk::WriteDescriptorSet	wds;
+			wds.dstSet = ds;
+			wds.dstBinding = binding;
+			wds.descriptorCount = 1;
+			wds.descriptorType = vk::DescriptorType::eUniformBuffer;
+			wds.pBufferInfo = &dbi;
+
+			dev_.updateDescriptorSets(1, &wds, 0, nullptr);
+		}
+
+		~uniform_holder() {
+			dev_.freeMemory(bufmem_);
+			dev_.destroyBuffer(buf_);
+		}
+
+		void write(const T& v) {
+			T* m_buf = (T*)dev_.mapMemory(bufmem_, 0, sizeof(T));
+			std::memcpy(m_buf, &v, sizeof(T));
+			dev_.unmapMemory(bufmem_);
+		}
+	};
+
 	struct vk_r : public basic_renderer {
 		std::string				desc;
 		vk::Instance 				instance;
@@ -123,138 +255,6 @@ namespace {
 		vk::Pipeline				pipeline;
 		vk::CommandPool				commandpool;
 		vk::CommandBuffer			commandbuffer;
-
-		template<typename T>
-		struct buf_holder {
-			vk::Device&					dev_;
-			const vk::PhysicalDeviceMemoryProperties&	mprops_;
-			vk::DescriptorSet&				ds_;
-			const uint32_t					binding_;
-			size_t						sz_;
-			vk::Buffer					buf_;
-			vk::DeviceMemory				bufmem_;
-
-			uint32_t find_memory_type(uint32_t mbits, const vk::MemoryPropertyFlags props) {
-				for(uint32_t i = 0; i < mprops_.memoryTypeCount; ++i) {
-					if ((mbits & (1 << i)) && ((mprops_.memoryTypes[i].propertyFlags & props) == props))
-						return i;
-				}
-				throw std::runtime_error("Can't find required memory type");
-			}
-
-			void cleanup(void) {
-				dev_.freeMemory(bufmem_);
-				dev_.destroyBuffer(buf_);
-			}
-
-			void resize(const size_t sz) {
-				if(sz > sz_) {
-					if(sz_)
-						cleanup();
-					const size_t	r_size = sizeof(T)*sz;
-					buf_ = dev_.createBuffer({{}, r_size, vk::BufferUsageFlagBits::eStorageBuffer});
-					auto memReq = dev_.getBufferMemoryRequirements(buf_);
-					vk::MemoryAllocateInfo	mai;
-					mai.allocationSize = memReq.size;
-					mai.memoryTypeIndex = find_memory_type(memReq.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible);
-					bufmem_ = dev_.allocateMemory(mai);
-					dev_.bindBufferMemory(buf_, bufmem_, 0);
-
-					// update the desc set
-					vk::DescriptorBufferInfo	dbi;
-					dbi.buffer = buf_;
-					dbi.offset = 0;
-					dbi.range = sz*sizeof(T);
-
-					vk::WriteDescriptorSet	wds;
-					wds.dstSet = ds_;
-					wds.dstBinding = binding_;
-					wds.descriptorCount = 1;
-					wds.descriptorType = vk::DescriptorType::eStorageBuffer;
-					wds.pBufferInfo = &dbi;
-
-					dev_.updateDescriptorSets(1, &wds, 0, nullptr);
-				}
-				sz_ = sz;
-			}
-
-			buf_holder(vk::Device& d, const vk::PhysicalDeviceMemoryProperties& p, vk::DescriptorSet& ds, const uint32_t binding) : dev_(d), mprops_(p), ds_(ds), binding_(binding), sz_(0) {
-			}
-
-			~buf_holder() {
-				cleanup();
-			}
-
-			template<typename Fn>
-			void read(Fn&& f) {
-				const T* m_buf = (const T*)dev_.mapMemory(bufmem_, 0, sz_*sizeof(T));
-				for(size_t i = 0; i < sz_; ++i) {
-					f(i, m_buf[i]);
-				}
-				dev_.unmapMemory(bufmem_);
-			}
-
-			template<typename Fn>
-			void write(Fn&& f) {
-				T* m_buf = (T*)dev_.mapMemory(bufmem_, 0, sz_*sizeof(T));
-				for(size_t i = 0; i < sz_; ++i) {
-					f(i, &m_buf[i]);
-				}
-				dev_.unmapMemory(bufmem_);
-			}
-		};
-
-		template<typename T>
-		struct uniform_holder {
-			vk::Device&					dev_;
-			vk::Buffer					buf_;
-			vk::DeviceMemory				bufmem_;
-
-			uint32_t find_memory_type(const vk::PhysicalDeviceMemoryProperties& p, uint32_t mbits, const vk::MemoryPropertyFlags props) {
-				for(uint32_t i = 0; i < p.memoryTypeCount; ++i) {
-					if ((mbits & (1 << i)) && ((p.memoryTypes[i].propertyFlags & props) == props))
-						return i;
-				}
-				throw std::runtime_error("Can't find required memory type");
-			}
-
-			uniform_holder(vk::Device& d, const vk::PhysicalDeviceMemoryProperties& p, vk::DescriptorSet& ds, const uint32_t binding) : dev_(d) {
-				const size_t	r_size = sizeof(T);
-				buf_ = dev_.createBuffer({{}, r_size, vk::BufferUsageFlagBits::eUniformBuffer});
-				auto memReq = dev_.getBufferMemoryRequirements(buf_);
-				vk::MemoryAllocateInfo	mai;
-				mai.allocationSize = memReq.size;
-				mai.memoryTypeIndex = find_memory_type(p, memReq.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible);
-				bufmem_ = dev_.allocateMemory(mai);
-				dev_.bindBufferMemory(buf_, bufmem_, 0);
-
-				// update the desc set
-				vk::DescriptorBufferInfo	dbi;
-				dbi.buffer = buf_;
-				dbi.offset = 0;
-				dbi.range = sizeof(T);
-
-				vk::WriteDescriptorSet	wds;
-				wds.dstSet = ds;
-				wds.dstBinding = binding;
-				wds.descriptorCount = 1;
-				wds.descriptorType = vk::DescriptorType::eUniformBuffer;
-				wds.pBufferInfo = &dbi;
-
-				dev_.updateDescriptorSets(1, &wds, 0, nullptr);
-			}
-
-			~uniform_holder() {
-				dev_.freeMemory(bufmem_);
-				dev_.destroyBuffer(buf_);
-			}
-
-			void write(const T& v) {
-				T* m_buf = (T*)dev_.mapMemory(bufmem_, 0, sizeof(T));
-				std::memcpy(m_buf, &v, sizeof(T));
-				dev_.unmapMemory(bufmem_);
-			}
-		};
 
 		// input
 		std::unique_ptr<buf_holder<vk_data::ray>>		raybuf;
