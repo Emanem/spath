@@ -31,6 +31,7 @@ You will need _freeglut_, _OpenCL_ and _Vulkan dev_ installed to compile:
 
 You would also need _Vulkan Hpp_ header file, if it doesn't come with _Vulkan dev_ you may download from 
 [github](https://github.com/KhronosGroup/Vulkan-Hpp/blob/master/vulkan/vulkan.hpp) and copy to ```/usr/include/vulkan/vulkan.hpp```.
+If your _Vulkan headers_ are going to be out of date (build error) the best next mvoe is to install them from [LunarXchange](https://vulkan.lunarg.com/sdk/home#linux) (for Ubuntu they have a nice ppa which would do for you); dont' forget to ```sudo apt install vulkan-headers``` in this case. You need at least version `1.2.162`.
 
 On Nvidia, one also has to create a _symlink_ to the _OpenCL.so_ library (not done by the installation of dev packages by default); in order
 to achieve this, let's add the following symlink ```sudo ln -s /usr/lib/x86_64-linux-gnu/libOpenCL.so.1 /usr/lib/libOpenCL.so```.
